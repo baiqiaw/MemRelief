@@ -1,0 +1,41 @@
+{
+  "project": "MemRelief",
+  "config": {
+    "hours_per_day": 8,
+    "work_days_per_week": 5,
+    "start_date": "2026-09-07",
+    "monte_carlo_n": 1000
+  },
+  "work_packages": [
+    {"id": "T-01", "name": "快照与基础采集器", "hours": 16, "confidence": "高", "role": "dev", "depends_on": ["T-18", "T-23"]},
+    {"id": "T-02", "name": "进程活动信号采集器群", "hours": 24, "confidence": "中", "role": "dev", "depends_on": ["T-01", "T-13"]},
+    {"id": "T-03", "name": "来源信号采集器群", "hours": 24, "confidence": "中", "role": "dev", "depends_on": ["T-01", "T-02"]},
+    {"id": "T-04", "name": "候选验签与缓存", "hours": 16, "confidence": "中", "role": "dev", "depends_on": ["T-01", "T-03"]},
+    {"id": "T-05", "name": "内存概览采样", "hours": 8, "confidence": "高", "role": "dev", "depends_on": ["T-18", "T-07"]},
+    {"id": "T-06", "name": "三级判定与冲突消解引擎", "hours": 40, "confidence": "中", "role": "dev", "depends_on": ["T-18"]},
+    {"id": "T-07", "name": "判定辅助（预筛/查询/预标）", "hours": 16, "confidence": "高", "role": "dev", "depends_on": ["T-06"]},
+    {"id": "T-08", "name": "释放规划与树保护", "hours": 16, "confidence": "高", "role": "dev", "depends_on": ["T-01", "T-13", "T-11"]},
+    {"id": "T-09", "name": "两段式执行主链", "hours": 24, "confidence": "中", "role": "dev", "depends_on": ["T-08"]},
+    {"id": "T-10", "name": "取消与结果报告", "hours": 16, "confidence": "中", "role": "dev", "depends_on": ["T-09", "T-05"]},
+    {"id": "T-11", "name": "白名单存储", "hours": 12, "confidence": "高", "role": "dev", "depends_on": ["T-18", "T-12"]},
+    {"id": "T-12", "name": "释放日志存储", "hours": 12, "confidence": "高", "role": "dev", "depends_on": ["T-18", "T-04"]},
+    {"id": "T-13", "name": "名单资源装载", "hours": 8, "confidence": "高", "role": "dev", "depends_on": ["T-18", "T-01"]},
+    {"id": "T-14", "name": "应用骨架与组合根", "hours": 24, "confidence": "中", "role": "dev", "depends_on": ["T-18", "T-01", "T-02", "T-03", "T-04", "T-06", "T-07", "T-13", "T-20"]},
+    {"id": "T-15", "name": "三级推荐列表", "hours": 32, "confidence": "中", "role": "dev", "depends_on": ["T-14", "T-11"]},
+    {"id": "T-16", "name": "释放交互闭环", "hours": 24, "confidence": "中", "role": "dev", "depends_on": ["T-15", "T-08", "T-10", "T-12"]},
+    {"id": "T-17", "name": "内存概览条", "hours": 8, "confidence": "高", "role": "dev", "depends_on": ["T-14", "T-05", "T-10"]},
+    {"id": "T-18", "name": "解决方案骨架与质量门禁", "hours": 8, "confidence": "高", "role": "dev", "depends_on": []},
+    {"id": "T-19", "name": "单文件发布配置与自用说明", "hours": 8, "confidence": "高", "role": "dev", "depends_on": ["T-14", "T-17"]},
+    {"id": "T-20", "name": "孤儿测试进程构造器", "hours": 16, "confidence": "中", "role": "dev", "depends_on": ["T-18", "T-05"]},
+    {"id": "T-21", "name": "真机扫描验证台", "hours": 8, "confidence": "高", "role": "dev", "depends_on": ["T-01", "T-02", "T-03", "T-04", "T-06", "T-07", "T-13", "T-26"]},
+    {"id": "T-22", "name": "GWT 验收矩阵与真机验收", "hours": 16, "confidence": "中", "role": "dev", "depends_on": ["T-16", "T-17", "T-19", "T-20", "T-26"]},
+    {"id": "T-23", "name": "工作计划", "hours": 8, "confidence": "高", "role": "dev", "depends_on": []},
+    {"id": "T-24", "name": "阶段验收记录", "hours": 8, "confidence": "高", "role": "dev", "depends_on": ["T-21", "T-22"]},
+    {"id": "T-25", "name": "经验总结", "hours": 8, "confidence": "高", "role": "dev", "depends_on": ["T-24"]},
+    {"id": "T-26", "name": "白名单管理面板", "hours": 8, "confidence": "高", "role": "dev", "depends_on": ["T-14", "T-11", "T-12", "T-19"]}
+  ],
+  "resources": [
+    {"role": "dev", "capacity": 2}
+  ],
+  "_serialization_note": "双车道串行化（2026-09-05 用户决策）：车道A=判定链主线（T-18→T-06→T-07→T-05→T-20→T-14→T-15→T-16→T-22→T-24→T-25）；车道B=采集/存储/释放链（T-23→T-01→T-13→T-02→T-03→T-04→T-12→T-11→T-08→T-09→T-10→T-17→T-19→T-26→T-21）。串行边叠加在 WBS 逻辑依赖之上，WBS 文档的依赖列不变（此处为资源串行化口径，非交付前提变更）"
+}

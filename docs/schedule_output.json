@@ -1,0 +1,597 @@
+{
+  "project": "MemRelief",
+  "config": {
+    "hours_per_day": 8,
+    "work_days_per_week": 5,
+    "start_date": "2026-09-07",
+    "monte_carlo_n": 1000
+  },
+  "cpm": {
+    "project_duration_workday": 29.0,
+    "critical_chain": [
+      "T-18",
+      "T-23",
+      "T-01",
+      "T-13",
+      "T-02",
+      "T-03",
+      "T-04",
+      "T-12",
+      "T-11",
+      "T-08",
+      "T-09",
+      "T-10",
+      "T-16",
+      "T-17",
+      "T-19",
+      "T-26",
+      "T-22",
+      "T-24",
+      "T-25"
+    ],
+    "critical_set": [
+      "T-01",
+      "T-02",
+      "T-03",
+      "T-04",
+      "T-08",
+      "T-09",
+      "T-10",
+      "T-11",
+      "T-12",
+      "T-13",
+      "T-16",
+      "T-17",
+      "T-18",
+      "T-19",
+      "T-22",
+      "T-23",
+      "T-24",
+      "T-25",
+      "T-26"
+    ],
+    "work_packages": [
+      {
+        "id": "T-18",
+        "name": "解决方案骨架与质量门禁",
+        "duration_workday": 1.0,
+        "ES": 0,
+        "EF": 1.0,
+        "LS": 0.0,
+        "LF": 1.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-23",
+        "name": "工作计划",
+        "duration_workday": 1.0,
+        "ES": 0,
+        "EF": 1.0,
+        "LS": 0.0,
+        "LF": 1.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-01",
+        "name": "快照与基础采集器",
+        "duration_workday": 2.0,
+        "ES": 1.0,
+        "EF": 3.0,
+        "LS": 1.0,
+        "LF": 3.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-06",
+        "name": "三级判定与冲突消解引擎",
+        "duration_workday": 5.0,
+        "ES": 1.0,
+        "EF": 6.0,
+        "LS": 5.0,
+        "LF": 10.0,
+        "float": 4.0,
+        "is_critical": false,
+        "role": "dev"
+      },
+      {
+        "id": "T-13",
+        "name": "名单资源装载",
+        "duration_workday": 1.0,
+        "ES": 3.0,
+        "EF": 4.0,
+        "LS": 3.0,
+        "LF": 4.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-02",
+        "name": "进程活动信号采集器群",
+        "duration_workday": 3.0,
+        "ES": 4.0,
+        "EF": 7.0,
+        "LS": 4.0,
+        "LF": 7.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-07",
+        "name": "判定辅助（预筛/查询/预标）",
+        "duration_workday": 2.0,
+        "ES": 6.0,
+        "EF": 8.0,
+        "LS": 10.0,
+        "LF": 12.0,
+        "float": 4.0,
+        "is_critical": false,
+        "role": "dev"
+      },
+      {
+        "id": "T-03",
+        "name": "来源信号采集器群",
+        "duration_workday": 3.0,
+        "ES": 7.0,
+        "EF": 10.0,
+        "LS": 7.0,
+        "LF": 10.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-05",
+        "name": "内存概览采样",
+        "duration_workday": 1.0,
+        "ES": 8.0,
+        "EF": 9.0,
+        "LS": 12.0,
+        "LF": 13.0,
+        "float": 4.0,
+        "is_critical": false,
+        "role": "dev"
+      },
+      {
+        "id": "T-20",
+        "name": "孤儿测试进程构造器",
+        "duration_workday": 2.0,
+        "ES": 9.0,
+        "EF": 11.0,
+        "LS": 13.0,
+        "LF": 15.0,
+        "float": 4.0,
+        "is_critical": false,
+        "role": "dev"
+      },
+      {
+        "id": "T-04",
+        "name": "候选验签与缓存",
+        "duration_workday": 2.0,
+        "ES": 10.0,
+        "EF": 12.0,
+        "LS": 10.0,
+        "LF": 12.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-12",
+        "name": "释放日志存储",
+        "duration_workday": 1.5,
+        "ES": 12.0,
+        "EF": 13.5,
+        "LS": 12.0,
+        "LF": 13.5,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-14",
+        "name": "应用骨架与组合根",
+        "duration_workday": 3.0,
+        "ES": 12.0,
+        "EF": 15.0,
+        "LS": 15.0,
+        "LF": 18.0,
+        "float": 3.0,
+        "is_critical": false,
+        "role": "dev"
+      },
+      {
+        "id": "T-11",
+        "name": "白名单存储",
+        "duration_workday": 1.5,
+        "ES": 13.5,
+        "EF": 15.0,
+        "LS": 13.5,
+        "LF": 15.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-08",
+        "name": "释放规划与树保护",
+        "duration_workday": 2.0,
+        "ES": 15.0,
+        "EF": 17.0,
+        "LS": 15.0,
+        "LF": 17.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-15",
+        "name": "三级推荐列表",
+        "duration_workday": 4.0,
+        "ES": 15.0,
+        "EF": 19.0,
+        "LS": 18.0,
+        "LF": 22.0,
+        "float": 3.0,
+        "is_critical": false,
+        "role": "dev"
+      },
+      {
+        "id": "T-09",
+        "name": "两段式执行主链",
+        "duration_workday": 3.0,
+        "ES": 17.0,
+        "EF": 20.0,
+        "LS": 17.0,
+        "LF": 20.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-10",
+        "name": "取消与结果报告",
+        "duration_workday": 2.0,
+        "ES": 20.0,
+        "EF": 22.0,
+        "LS": 20.0,
+        "LF": 22.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-16",
+        "name": "释放交互闭环",
+        "duration_workday": 3.0,
+        "ES": 22.0,
+        "EF": 25.0,
+        "LS": 22.0,
+        "LF": 25.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-17",
+        "name": "内存概览条",
+        "duration_workday": 1.0,
+        "ES": 22.0,
+        "EF": 23.0,
+        "LS": 22.0,
+        "LF": 23.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-19",
+        "name": "单文件发布配置与自用说明",
+        "duration_workday": 1.0,
+        "ES": 23.0,
+        "EF": 24.0,
+        "LS": 23.0,
+        "LF": 24.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-26",
+        "name": "白名单管理面板",
+        "duration_workday": 1.0,
+        "ES": 24.0,
+        "EF": 25.0,
+        "LS": 24.0,
+        "LF": 25.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-21",
+        "name": "真机扫描验证台",
+        "duration_workday": 1.0,
+        "ES": 25.0,
+        "EF": 26.0,
+        "LS": 26.0,
+        "LF": 27.0,
+        "float": 1.0,
+        "is_critical": false,
+        "role": "dev"
+      },
+      {
+        "id": "T-22",
+        "name": "GWT 验收矩阵与真机验收",
+        "duration_workday": 2.0,
+        "ES": 25.0,
+        "EF": 27.0,
+        "LS": 25.0,
+        "LF": 27.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-24",
+        "name": "阶段验收记录",
+        "duration_workday": 1.0,
+        "ES": 27.0,
+        "EF": 28.0,
+        "LS": 27.0,
+        "LF": 28.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      },
+      {
+        "id": "T-25",
+        "name": "经验总结",
+        "duration_workday": 1.0,
+        "ES": 28.0,
+        "EF": 29.0,
+        "LS": 28.0,
+        "LF": 29.0,
+        "float": 0.0,
+        "is_critical": true,
+        "role": "dev"
+      }
+    ]
+  },
+  "resources": {
+    "conflicts": [],
+    "unassigned_roles": []
+  },
+  "uncertainty": {
+    "pert_expected_workday": 29.0,
+    "pert_std_workday": 1.2,
+    "monte_carlo": {
+      "N": 1000,
+      "P50": 29.3,
+      "P80": 30.4,
+      "P90": 31.1,
+      "mean": 29.3,
+      "std": 1.3
+    },
+    "recommended_commitment": "P80 = 30.4 工作日（80% 置信完成，推荐承诺口径）"
+  },
+  "gantt_mermaid": "```mermaid\ngantt\n    title 项目排期（跳周末，不跳节假日）\n    dateFormat YYYY-MM-DD\n    axisFormat %m-%d\n    excludes weekends\n    解决方案骨架与质量门禁 :T18, 2026-09-07, 1.0d,critical\n    工作计划 :T23, 2026-09-07, 1.0d,critical\n    快照与基础采集器 :T01, 2026-09-08, 2.0d,critical\n    三级判定与冲突消解引擎 :T06, 2026-09-08, 5.0d\n    名单资源装载 :T13, 2026-09-10, 1.0d,critical\n    进程活动信号采集器群 :T02, 2026-09-11, 3.0d,critical\n    判定辅助（预筛/查询/预标） :T07, 2026-09-15, 2.0d\n    来源信号采集器群 :T03, 2026-09-16, 3.0d,critical\n    内存概览采样 :T05, 2026-09-17, 1.0d\n    孤儿测试进程构造器 :T20, 2026-09-18, 2.0d\n    候选验签与缓存 :T04, 2026-09-21, 2.0d,critical\n    释放日志存储 :T12, 2026-09-23, 1.5d,critical\n    应用骨架与组合根 :T14, 2026-09-23, 3.0d\n    白名单存储 :T11, 2026-09-24, 1.5d,critical\n    释放规划与树保护 :T08, 2026-09-28, 2.0d,critical\n    三级推荐列表 :T15, 2026-09-28, 4.0d\n    两段式执行主链 :T09, 2026-09-30, 3.0d,critical\n    取消与结果报告 :T10, 2026-10-05, 2.0d,critical\n    释放交互闭环 :T16, 2026-10-07, 3.0d,critical\n    内存概览条 :T17, 2026-10-07, 1.0d,critical\n    单文件发布配置与自用说明 :T19, 2026-10-08, 1.0d,critical\n    白名单管理面板 :T26, 2026-10-09, 1.0d,critical\n    真机扫描验证台 :T21, 2026-10-12, 1.0d\n    GWT 验收矩阵与真机验收 :T22, 2026-10-12, 2.0d,critical\n    阶段验收记录 :T24, 2026-10-14, 1.0d,critical\n    经验总结 :T25, 2026-10-15, 1.0d,critical\n```",
+  "schedule_table_md": "| T-NN | 工作包 | 工期(d) | ES | EF | LS | LF | 浮动 | 关键? | 角色 |\n|------|--------|---------|----|----|----|----|------|-------|------|\n| T-18 | 解决方案骨架与质量门禁 | 1.0 | 0.0 | 1.0 | 0.0 | 1.0 | 0.0 | ✅是 | dev |\n| T-23 | 工作计划 | 1.0 | 0.0 | 1.0 | 0.0 | 1.0 | 0.0 | ✅是 | dev |\n| T-01 | 快照与基础采集器 | 2.0 | 1.0 | 3.0 | 1.0 | 3.0 | 0.0 | ✅是 | dev |\n| T-06 | 三级判定与冲突消解引擎 | 5.0 | 1.0 | 6.0 | 5.0 | 10.0 | 4.0 | — | dev |\n| T-13 | 名单资源装载 | 1.0 | 3.0 | 4.0 | 3.0 | 4.0 | 0.0 | ✅是 | dev |\n| T-02 | 进程活动信号采集器群 | 3.0 | 4.0 | 7.0 | 4.0 | 7.0 | 0.0 | ✅是 | dev |\n| T-07 | 判定辅助（预筛/查询/预标） | 2.0 | 6.0 | 8.0 | 10.0 | 12.0 | 4.0 | — | dev |\n| T-03 | 来源信号采集器群 | 3.0 | 7.0 | 10.0 | 7.0 | 10.0 | 0.0 | ✅是 | dev |\n| T-05 | 内存概览采样 | 1.0 | 8.0 | 9.0 | 12.0 | 13.0 | 4.0 | — | dev |\n| T-20 | 孤儿测试进程构造器 | 2.0 | 9.0 | 11.0 | 13.0 | 15.0 | 4.0 | — | dev |\n| T-04 | 候选验签与缓存 | 2.0 | 10.0 | 12.0 | 10.0 | 12.0 | 0.0 | ✅是 | dev |\n| T-12 | 释放日志存储 | 1.5 | 12.0 | 13.5 | 12.0 | 13.5 | 0.0 | ✅是 | dev |\n| T-14 | 应用骨架与组合根 | 3.0 | 12.0 | 15.0 | 15.0 | 18.0 | 3.0 | — | dev |\n| T-11 | 白名单存储 | 1.5 | 13.5 | 15.0 | 13.5 | 15.0 | 0.0 | ✅是 | dev |\n| T-08 | 释放规划与树保护 | 2.0 | 15.0 | 17.0 | 15.0 | 17.0 | 0.0 | ✅是 | dev |\n| T-15 | 三级推荐列表 | 4.0 | 15.0 | 19.0 | 18.0 | 22.0 | 3.0 | — | dev |\n| T-09 | 两段式执行主链 | 3.0 | 17.0 | 20.0 | 17.0 | 20.0 | 0.0 | ✅是 | dev |\n| T-10 | 取消与结果报告 | 2.0 | 20.0 | 22.0 | 20.0 | 22.0 | 0.0 | ✅是 | dev |\n| T-16 | 释放交互闭环 | 3.0 | 22.0 | 25.0 | 22.0 | 25.0 | 0.0 | ✅是 | dev |\n| T-17 | 内存概览条 | 1.0 | 22.0 | 23.0 | 22.0 | 23.0 | 0.0 | ✅是 | dev |\n| T-19 | 单文件发布配置与自用说明 | 1.0 | 23.0 | 24.0 | 23.0 | 24.0 | 0.0 | ✅是 | dev |\n| T-26 | 白名单管理面板 | 1.0 | 24.0 | 25.0 | 24.0 | 25.0 | 0.0 | ✅是 | dev |\n| T-21 | 真机扫描验证台 | 1.0 | 25.0 | 26.0 | 26.0 | 27.0 | 1.0 | — | dev |\n| T-22 | GWT 验收矩阵与真机验收 | 2.0 | 25.0 | 27.0 | 25.0 | 27.0 | 0.0 | ✅是 | dev |\n| T-24 | 阶段验收记录 | 1.0 | 27.0 | 28.0 | 27.0 | 28.0 | 0.0 | ✅是 | dev |\n| T-25 | 经验总结 | 1.0 | 28.0 | 29.0 | 28.0 | 29.0 | 0.0 | ✅是 | dev |",
+  "task_windows": {
+    "T-01": {
+      "planned_start_workday": 1.0,
+      "planned_end_workday": 3.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-09-08",
+      "planned_end_date": "2026-09-09"
+    },
+    "T-02": {
+      "planned_start_workday": 4.0,
+      "planned_end_workday": 7.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-09-11",
+      "planned_end_date": "2026-09-15"
+    },
+    "T-03": {
+      "planned_start_workday": 7.0,
+      "planned_end_workday": 10.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-09-16",
+      "planned_end_date": "2026-09-18"
+    },
+    "T-04": {
+      "planned_start_workday": 10.0,
+      "planned_end_workday": 12.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-09-21",
+      "planned_end_date": "2026-09-22"
+    },
+    "T-05": {
+      "planned_start_workday": 8.0,
+      "planned_end_workday": 9.0,
+      "float_workday": 4.0,
+      "is_critical": false,
+      "planned_start_date": "2026-09-17",
+      "planned_end_date": "2026-09-17"
+    },
+    "T-06": {
+      "planned_start_workday": 1.0,
+      "planned_end_workday": 6.0,
+      "float_workday": 4.0,
+      "is_critical": false,
+      "planned_start_date": "2026-09-08",
+      "planned_end_date": "2026-09-14"
+    },
+    "T-07": {
+      "planned_start_workday": 6.0,
+      "planned_end_workday": 8.0,
+      "float_workday": 4.0,
+      "is_critical": false,
+      "planned_start_date": "2026-09-15",
+      "planned_end_date": "2026-09-16"
+    },
+    "T-08": {
+      "planned_start_workday": 15.0,
+      "planned_end_workday": 17.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-09-28",
+      "planned_end_date": "2026-09-29"
+    },
+    "T-09": {
+      "planned_start_workday": 17.0,
+      "planned_end_workday": 20.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-09-30",
+      "planned_end_date": "2026-10-02"
+    },
+    "T-10": {
+      "planned_start_workday": 20.0,
+      "planned_end_workday": 22.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-10-05",
+      "planned_end_date": "2026-10-06"
+    },
+    "T-11": {
+      "planned_start_workday": 13.5,
+      "planned_end_workday": 15.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-09-24",
+      "planned_end_date": "2026-09-25"
+    },
+    "T-12": {
+      "planned_start_workday": 12.0,
+      "planned_end_workday": 13.5,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-09-23",
+      "planned_end_date": "2026-09-24"
+    },
+    "T-13": {
+      "planned_start_workday": 3.0,
+      "planned_end_workday": 4.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-09-10",
+      "planned_end_date": "2026-09-10"
+    },
+    "T-14": {
+      "planned_start_workday": 12.0,
+      "planned_end_workday": 15.0,
+      "float_workday": 3.0,
+      "is_critical": false,
+      "planned_start_date": "2026-09-23",
+      "planned_end_date": "2026-09-25"
+    },
+    "T-15": {
+      "planned_start_workday": 15.0,
+      "planned_end_workday": 19.0,
+      "float_workday": 3.0,
+      "is_critical": false,
+      "planned_start_date": "2026-09-28",
+      "planned_end_date": "2026-10-01"
+    },
+    "T-16": {
+      "planned_start_workday": 22.0,
+      "planned_end_workday": 25.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-10-07",
+      "planned_end_date": "2026-10-09"
+    },
+    "T-17": {
+      "planned_start_workday": 22.0,
+      "planned_end_workday": 23.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-10-07",
+      "planned_end_date": "2026-10-07"
+    },
+    "T-18": {
+      "planned_start_workday": 0,
+      "planned_end_workday": 1.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-09-07",
+      "planned_end_date": "2026-09-07"
+    },
+    "T-19": {
+      "planned_start_workday": 23.0,
+      "planned_end_workday": 24.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-10-08",
+      "planned_end_date": "2026-10-08"
+    },
+    "T-20": {
+      "planned_start_workday": 9.0,
+      "planned_end_workday": 11.0,
+      "float_workday": 4.0,
+      "is_critical": false,
+      "planned_start_date": "2026-09-18",
+      "planned_end_date": "2026-09-21"
+    },
+    "T-21": {
+      "planned_start_workday": 25.0,
+      "planned_end_workday": 26.0,
+      "float_workday": 1.0,
+      "is_critical": false,
+      "planned_start_date": "2026-10-12",
+      "planned_end_date": "2026-10-12"
+    },
+    "T-22": {
+      "planned_start_workday": 25.0,
+      "planned_end_workday": 27.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-10-12",
+      "planned_end_date": "2026-10-13"
+    },
+    "T-23": {
+      "planned_start_workday": 0,
+      "planned_end_workday": 1.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-09-07",
+      "planned_end_date": "2026-09-07"
+    },
+    "T-24": {
+      "planned_start_workday": 27.0,
+      "planned_end_workday": 28.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-10-14",
+      "planned_end_date": "2026-10-14"
+    },
+    "T-25": {
+      "planned_start_workday": 28.0,
+      "planned_end_workday": 29.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-10-15",
+      "planned_end_date": "2026-10-15"
+    },
+    "T-26": {
+      "planned_start_workday": 24.0,
+      "planned_end_workday": 25.0,
+      "float_workday": 0.0,
+      "is_critical": true,
+      "planned_start_date": "2026-10-09",
+      "planned_end_date": "2026-10-09"
+    }
+  }
+}
