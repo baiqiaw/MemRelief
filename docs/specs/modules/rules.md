@@ -22,7 +22,7 @@
 ## 4. 行为
 
 ### 4.1 关键用例
-- **分类**：`Task<IReadOnlyList<Classification>> Classify(ScanResult, WhitelistSnapshot, RulePack)` → 逐进程：采集型信号求值 + 名单匹配派生（四份名单+白名单）→ 冲突消解 → 预标 → 输出。判定语义全部引用 [PRD F1 处理逻辑 2–5 与口径表](../../PRD.md)，不在此复述。
+- **分类**：`Task<IReadOnlyList<Classification>> Classify(ScanResult, WhitelistSnapshot, RulePack, ClassificationContext)` → 逐进程：采集型信号求值 + 名单匹配派生（四份名单+白名单）→ 冲突消解 → 预标 → 输出。判定语义全部引用 [PRD F1 处理逻辑 2–5 与口径表](../../PRD.md)，不在此复述。`ClassificationContext.SelfPid` 供"本工具自身"🚫判定；纯函数约束下环境信息一律经此参数注入（2026-09-05 契约修订，见 data-contracts §1.1）。**交付切分（T-06/T-07）**：Classify 主链含服务[口径#8]与受拒[口径#11]预标（T-06 交付）；`CandidateIds`/`Query`/跨用户预标归 T-07。输出含全部进程（Unmatched/Whitelisted 项也在内，1..1 契约），「不进列表」的过滤由编排方/ui 执行；全量集供 T-07 Query 直接复用。
 - **候选预筛**：`ISet<int> CandidateIds(ScanResult)` → 需验签的候选（潜在✅/⚠️且非系统目录），供编排方驱动 `CollectSignatures`（[scanner §4.3](./scanner.md)）。
 - **查询**：`QueryResult Query(ScanResult, …, 进程名/PID)` → 含"未命中规则"/"白名单排除"（[PRD F2](../../PRD.md)）。
 
@@ -41,7 +41,7 @@
 
 ## 6. 约束（模块级）
 
-- **法**：**判定求值为纯函数**——同输入（ScanResult+WhitelistSnapshot+RulePack）必得同输出；不发起任何 I/O、不持有可变状态（M1 以 xUnit 驱动验收的直接依据）。
+- **法**：**判定求值为纯函数**——同输入（ScanResult+WhitelistSnapshot+RulePack+ClassificationContext）必得同输出；不发起任何 I/O、不持有可变状态（M1 以 xUnit 驱动验收的直接依据）。
 - **法**：每条 `Classification` 的依据可完整追溯（口径表编号命中/未命中）——GWT R01 系列断言基础。
 - **法**：白名单进程完全排除；保护名单不可勾选；树合计内存唯一承载于 `Classification.TreePrivateBytes`（本模块计算，供排序/确认弹窗/释放量复用）。
 - **法**：名单匹配输入缺失（RulePack 加载失败经编排方传入空）时，按 system 法-3 保守兜底——相关保护性依据缺失的进程不进✅级。

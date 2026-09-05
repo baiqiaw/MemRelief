@@ -9,6 +9,7 @@
 | `ProcessSnapshot` / `SignalSet` / `SignalFailure` / `ScanResult` | scanner | rules、releaser、ui |
 | `MemoryOverview` | scanner | releaser（释放前后采样）、ui（呈现） |
 | `Classification` / `QueryResult` | rules | ui |
+| `ClassificationContext` | rules（入参契约，编排方构造） | rules、ui（预标高亮：**ui 消费 `RequiresElevation`，不重算预标谓词**） |
 | `ReleaseRequest` / `TreePlan` / `ReleaseItemResult` / `ReleaseReport` | releaser | ui、storage |
 | `WhitelistEntry` / `WhitelistSnapshot` / `RulePack` | storage | rules（注入）、releaser（注入）、ui |
 | 事件：`TreeProgress` / `ReleaseCompleted` / `ScanFailed` | 各提供模块 | ui（+App 编排） |
@@ -17,13 +18,13 @@
 
 ### 1.1 扫描域（scanner 提供）
 
-- **`ProcessSnapshot`**：`Pid`（int，唯一键）、`ParentPid`、`Name`、`ExecutablePath`（可空=受保护/系统）、`CreationTimeUtc`（身份校验与 PID 复用判定）、`PrivateCommittedBytes`（long）、`CommandLine`（可空，WMI 通道）、`OwnerUser`（可空=不可读；跨用户预标依据）。单位一律字节（PRD 的 MB 为展示换算）。
+- **`ProcessSnapshot`**：`Pid`（int，**唯一键，违约定=扫描失败**）、`ParentPid`、`Name`、`ExecutablePath`（可空=受保护/系统/不可读，不可读须伴随 Unreadable SignalFailure）、`CreationTimeUtc`（**Kind 须为 Utc**；身份校验与 PID 复用判定的采集侧输入）、`PrivateCommittedBytes`（long）、`CommandLine`（可空，WMI 通道；null=不可读，通道级失败经 SignalFailure 登记不可行——v1 接受仅字段级 null 表达）、`OwnerUser`（可空=不可读；跨用户预标依据）、`Signals`（SignalSet，1..1）。单位一律字节（PRD 的 MB 为展示换算）。
 - **`SignalSet`**（字段级；**仅采集型信号**，名单匹配类判定归 rules 派生）：
 
   | 字段 | 类型/枚举 | 对应口径# |
   |---|---|---|
   | OrphanHint | enum{ParentDead, PidReused, No} | #1 |
-  | SameDirAlivePids | ISet\<int\>（孤儿群互斥计算归 rules） | #3 |
+  | SameDirAlivePids | IReadOnlySet\<int\>（**不含目标自身**；孤儿群互斥计算归 rules；路径归一化在采集侧完成） | #3 |
   | HasVisibleWindow | bool?（null=枚举失败） | #4 |
   | IsUwpPackage | bool | #4 |
   | TcpEstablishedCount | int | #6 |
@@ -33,18 +34,20 @@
   | SignatureStatus | enum{Microsoft, ValidNonMicrosoft, Invalid, Unsigned, NotCollected, Unverifiable} | #9 |
   | SignerName | string?（ValidNonMicrosoft 时必填；安全软件第二通道） | #11 |
   | IsSystemDirectory | bool? | #10 |
-  | SourceEntries | IList\<{Type: enum{RunKey,Service,ScheduledTask,StartupFolder}, EntryName}\> | #12 |
+  | SourceEntries | IReadOnlyList\<SourceEntry{Type: enum{RunKey,Service,ScheduledTask,StartupFolder}, EntryName}\> | #12 |
   | ScheduledTaskWouldRevive | bool?（触发器/动作匹配） | #15 |
 
   （#2 残留模式库、#5 常驻、#11 安全软件、#13 阈值、#14 白名单为 rules 派生判定，无采集字段。）
-- **`SignalFailure`**：`SignalId`（口径表编号）、`Reason`。出现即触发保守兜底（system 法-3）。
-- **`ScanResult`**：`TakenAtUtc`、`ProcessCount`、`DurationMs`、`Snapshots`、`Failures`。不可变。
+  **配对不变量（强制）**：某口径采集失败时，除字段自身 null 语义外，必须同时登记对应 SignalFailure——rules 以 Failures 为保守兜底的事实源，字段默认值（false/0/空集）不构成「已核实」证据。
+- **`SignalFailure`**：`SignalId`（口径表编号）、`Pid`（int?，null=采集器级全局失败，非单进程）、`Kind`（enum{AccessDenied=打开受拒/PPL，Unreadable=部分元数据不可读，CollectorFailed=采集器/通道失败}）、`Detail`（人读原因，不作判定输入）。**保守兜底按 Kind+Pid 精确承载**（system 法-3）：AccessDenied→🚫受保护；Unreadable/CollectorFailed→相关进程不进✅。全局失败（Pid=null）v1 语义=全量进程不进✅（全有全无；代价已接受：采集器级失败意味着扫描数据整体不可信）。
+- **`ClassificationContext`**：`SelfPid`（本工具自身 PID，🚫"本工具自身"判定依据）、`CurrentUserName`（string?，当前用户，跨用户预标依据，T-07 消费；null=获取失败→跨用户预标不可判，兜底方向归 T-07 裁决）。编排方构造后注入 rules，保持判定纯函数（不含环境读取）。
+- **`ScanResult`**：`TakenAtUtc`、`ProcessCount`（=Snapshots.Count 的冗余快照，语义=尝试枚举总数；v1 与 Snapshots 一致）、`DurationMs`、`Snapshots`、`Failures`。不可变（构造后调用方不得变更底层集合，实现以防御性拷贝保证）。
 - **`MemoryOverview`**：`PhysicalTotalBytes`、`InUseBytes`、`CommitBytes`、`CommitLimitBytes`、`StandbyBytes`（可空=降级）、`Source`（enum{NtQuery, Pdh, Degraded}）。
 
 ### 1.2 判定域（rules 提供）
 
-- **`Classification`**：`Pid`、`Level`（enum{Recommend, Caution, Protected, Unmatched, Whitelisted}）、`Bases`（有序 `Basis{SignalId, Detail}`）、`TreePrivateBytes`（long，树合计唯一承载）、`WouldBeRevived`（bool?，null=不适用/未评估）、`SourceEntries`、`RequiresElevation`（bool，预标：服务[口径#8]或跨用户/受拒，含依据入 Bases）。
-- **`QueryResult`**：`Target`、`Outcome`（各级/未命中规则/白名单排除）、`Bases`。
+- **`Classification`**：`Pid`、`Level`（enum{Recommend, Caution, Protected, Unmatched, Whitelisted}；**代码枚举序 Unmatched=0** 为防御性默认）、`Bases`（有序 `Basis{SignalId, Detail}`；SignalId=口径表编号，**0=保留值**：非口径表依据[采集失败兜底/本工具自身/系统保护穷举名/名单不可用]，口径表无对应行）、`TreePrivateBytes`（long，树合计唯一承载）、`WouldBeRevived`（bool?，null=不适用/未评估）、`SourceEntries`、`RequiresElevation`（bool，预标：服务[口径#8]与受拒[口径#11]由 T-06 Classify 输出；跨用户预标归 T-07，含依据入 Bases）。
+- **`QueryResult`**：`Target`、`Outcome`（各级/未命中规则/白名单排除）、`Bases`。（T-07 交付）
 
 ### 1.3 释放域（releaser 提供）
 
@@ -55,9 +58,9 @@
 
 ### 1.4 持久化域（storage 提供）
 
-- **`WhitelistEntry`**：`Name`（匹配键）、`AddedAtUtc`、`Path`（记录性）、`Note`。
-- **`WhitelistSnapshot`**：不可变 `WhitelistEntry` 只读集（一次扫描一个一致视图）。
-- **`RulePack`**：`ResidualPatterns[]`（子串）、`ResidentApps[]`（精确名）、`SecurityApps[]`（名+签名方）、`ProtectedProcesses[]`（穷举名）。内容基线引用 [PRD 附录名单清单](../../PRD.md)。
+- **`WhitelistEntry`**：`Name`（匹配键）、`AddedAtUtc`、`Path`（可空，记录性）、`Note`（可空）。
+- **`WhitelistSnapshot`**：不可变 `WhitelistEntry` 只读集（一次扫描一个一致视图）。名称匹配语义 = OrdinalIgnoreCase（v1 已知边界：同名不同路径一并排除）；**`ContainsName` 谓词为全系统唯一白名单匹配点**（rules/releaser 一律复用，禁止第二处实现）。
+- **`RulePack`**：`ResidualPatterns[]`（子串）、`ResidentApps[]`（精确名）、`SecurityApps[]`（名+签名方；Signer 可空=null 仅按名称通道匹配）、`ProtectedProcesses[]`（穷举名）。内容基线引用 [PRD 附录名单清单](../../PRD.md)；**加载失败经编排方传入空包，空名单按"保护性依据缺失"兜底（v1 不区分真实空与失败，接受保守误降级）**。
 
 ### 1.5 事件契约（异步通知；同步结果走方法返回值）
 
@@ -68,6 +71,8 @@
 ## 2. 版本与兼容
 
 契约变更流程（system 法-5）：先改本文件 → 评审 → 再改实现。v1 文件格式不设版本字段（单机自用、可重建）；破坏性语义变更以 spec 变更记录 + 显式迁移声明承载。事件/数据字段可新增（新增=兼容），删除或语义反转=破坏性（须评审记录）。
+
+> 2026-09-05（T-06 开工裁决）：① `SignalFailure` 结构化——加 `Pid`（精确兜底绑定，null=采集器级）与 `Kind` 枚举（判定引擎不可匹配自由文本；承载 GWT#12 PPL/🚫 与 #13 提权/⚠️ 的区分）；② 新增 `ClassificationContext`（SelfPid=「本工具自身」🚫判定依据；CurrentUserName 供 T-07 跨用户预标）——纯函数约束下环境信息一律参数注入；③ `ProcessSnapshot` 补 `Signals`（SignalSet，1..1）聚合关系澄清。实现于 T-06。
 
 ## 3. SLA / 非功能
 
