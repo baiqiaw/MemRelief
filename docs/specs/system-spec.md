@@ -40,8 +40,8 @@ graph LR
 
 ## 4. 技术栈
 
-- C# / .NET 8（LTS 至 2026-11；**v2 商用前评估升级 .NET 10 LTS**，登记于 §9）；WPF（App）
-- Win32 经 CsWin32 源生成器；**手写例外**（不入 CsWin32 口径，[PRD §3.3](../PRD.md)）：①计划任务 ITaskService（COM 激活与 marshaling 控制更直接）②系统内存信息 NtQuerySystemInformation；③他进程命令行采集经 WMI（System.Management，基线采样脚本已验证可行）
+- C# / .NET 10（LTS 至 2028-11；2026-09-05 开工裁决：.NET 8 EOL 2026-11，新项目直接以 LTS 10 起步，消解原「v2 评估升级」待办）；WPF（App）
+- Win32 经 CsWin32 源生成器；**手写例外**（不入 CsWin32 口径，[PRD §3.3](../PRD.md)）：①计划任务 ITaskService（COM 激活与 marshaling 控制更直接）②系统内存信息 NtQuerySystemInformation；③他进程命令行采集经 WMI（System.Management，基线采样脚本已验证 WMI 通道可行；CommandLine 字段待 T-01 实测）
 - 测试（情报，可择路）：xUnit + coverlet
 - 解决方案结构（**多项目，编译期隔离**）：
   ```
@@ -67,7 +67,7 @@ graph LR
 ## 6. 全局约束
 
 **法**（违反即 FAIL）：
-- 法-1 项目依赖方向：`Core` 不得引用 `WindowsBase/PresentationFramework/System.Windows.*`，CI 判定检查 Core **编译产物的程序集引用清单**（防 NuGet 传递引入，非仅 csproj 文本）；`App` 是唯一 UI 项目（溯源：PRD §3.5）。
+- 法-1 项目依赖方向：`Core` 不得引用 `WindowsBase/PresentationFramework/System.Windows.*`，门禁脚本判定（`scripts/check-core-refs.ps1`，入口 `scripts/gate.ps1`）检查 Core **编译产物的程序集引用清单**（防 NuGet 传递引入，非仅 csproj 文本）；`App` 是唯一 UI 项目（溯源：PRD §3.5；本机门禁承载，CI 未建）。
 - 法-2 判定信号技术口径以 [PRD §3.1 F1 口径表 #1–#15](../PRD.md) 为唯一事实源；实现不得另立口径（溯源：req-review S0-1）。
 - 法-3 保守兜底总则：任一保护性判定所需数据（信号/名单）采集或加载失败 → 相关进程不得进✅级（溯源：PRD 口径表总则）。
 - 法-4 系统配置零写入：除白名单/日志两个自有数据文件（含轮转副本）外不得写注册表/文件系统；引擎诊断日志仅输出调试跟踪/控制台，**不落盘**（溯源：PRD §3.4）。
@@ -80,7 +80,7 @@ graph LR
 
 ## 7. 非功能需求（系统级）
 
-引用 [PRD §3.4](../PRD.md)。**端到端预算分解**（PRD 3s 口径 = 点击"开始扫描"→列表渲染完成，spec 派生分解）：采集 ≤2.0s + 候选验签 ≤0.5s + 判定 ≤0.3s + 渲染 ≤0.2s；模块级法条采用各自份额，不得标注"PRD §3.4 计时口径"。其余：单树 ≤5s/整批 ≤30s、自身工作集 ≤100MB、Win11 x64 实测。Core 全模块可脱离 UI 由 xUnit 驱动（M1 验收形态）；Core 变更行覆盖率 >80%。
+引用 [PRD §3.4](../PRD.md)。**端到端预算分解**（PRD 3s 口径 = 点击"开始扫描"→列表渲染完成，spec 派生分解）：采集 ≤2.0s + 候选验签 ≤0.5s + 判定 ≤0.3s + 渲染 ≤0.2s；模块级法条采用各自份额，不得标注"PRD §3.4 计时口径"。其余：单树 ≤5s/整批 ≤30s、自身工作集 ≤100MB、Win11 x64 实测。Core 全模块可脱离 UI 由 xUnit 驱动（M1 验收形态）；Core 行覆盖率（全量 total 口径，coverlet.msbuild 承载）≥80%。
 
 ## 8. 部署拓扑要点
 
@@ -92,5 +92,5 @@ graph LR
 |---|---|---|
 | 2026-09-05 | 初始版本（新建模式，三层骨架） | 全部 |
 | 2026-09-05 | 评审修订：扫描链改拉模式编排（删冗余事件）+组合根节；预算分解（3s 端到端口径澄清）；架构图修正（删 Scanner→Storage 边、rules 参数注入）；名单统一四份；计数修正；法-1 升级为产物级检查；.NET 8 EOL 提示 | system + 全部 modules |
-
-待办：v2 商用前评估 .NET 8（LTS 2026-11 止）升级至 .NET 10 LTS。
+| 2026-09-05 | 技术栈 .NET 8 → .NET 10 LTS（T-18 开工裁决），消解 v2 升级待办 | §4 |
+| 2026-09-05 | 评审修订（T-18 cross-review）：法-1 判定载体由「CI」改门禁脚本（CI 未建）；覆盖率口径「变更行 >80%」改「全量 total ≥80%」（与实现承载一致，消解孤本）；§4 ③ WMI 归因精确化 | §4/§6/§7 |

@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- 覆盖率采集常驻（仅统计 MemRelief.Core）：任何 dotnet test 均出覆盖率报告；
+         阈值强制（≥80%，全量 total 口径，见 spec §7）由 scripts/gate.ps1 以 /p: 注入，
+         局部/单测运行不被全量阈值误伤 -->
+    <CollectCoverage>true</CollectCoverage>
+    <Include>[MemRelief.Core]*</Include>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.msbuild" Version="10.0.1">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MemRelief.Core\MemRelief.Core.csproj" />
+  </ItemGroup>
+
+</Project>

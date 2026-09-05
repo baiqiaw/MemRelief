@@ -1,0 +1,17 @@
+# 构建产物
+[Bb]in/
+[Oo]bj/
+publish/
+
+# IDE
+.vs/
+*.user
+
+# 测试与覆盖率
+TestResults/
+coverage*.json
+coverage*.xml
+
+# 构建日志
+*.binlog
+msbuild.log
