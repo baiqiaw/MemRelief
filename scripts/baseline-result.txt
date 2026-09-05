@@ -1,0 +1,53 @@
+﻿采样时间: 2026-09-05 13:58:25
+
+=== [1] 系统内存现状 ===
+物理内存: 总 15.73 GB | In Use 15.37 GB (97.7%) | 可用 0.36 GB
+Commit: 已提交 30.49 GB / 上限 38.73 GB (78.7%)
+Available: 0.35 GB | Standby(约) = Available - FreeAndZero = 0.3 GB
+硬缺页速率(3s 窗口): PagesInput/sec = 1102 | PageReads/sec = 382  (上一次: 659/219)
+
+=== [2] 进程快照与孤儿/残留识别（口径同 PRD：PPID 死亡或 PID 复用 → 孤儿；模式库子串匹配）===
+进程总数: 429
+孤儿进程: 11 个 | 聚合私有提交: 1574 MB
+模式库命中(非孤儿): 3 个 | 聚合: 99.2 MB
+== 合计(孤儿+残留判定命中, 上界): 1673.2 MB ==
+
+=== [3] 判定命中进程 Top 20（按私有提交降序）===
+
+  PID Name                 PrivateMB Orphan Pattern Path                                                                                                                
+  --- ----                 --------- ------ ------- ----                                                                                                                
+15104 BiQuan.WebGui.exe        454.6   True   False E:\BiQuan\publish\BiQuan.WebGui.exe                                                                                 
+ 4576 BiQuan.WebGui.exe          423   True   False E:\BiQuanRun\binance-test\BiQuan.WebGui.exe                                                                         
+31716 VBCSCompiler.exe         176.4   True   False C:\Program Files\dotnet\sdk\10.0.111\Roslyn\bincore\VBCSCompiler.exe                                                
+ 2568 wpscloudsvr.exe          166.7   True   False D:\AppData\Local\Kingsoft\WPS Office\12.1.0.28043\office6\wpscloudsvr.exe                                           
+14396 Doubao.exe               113.5   True   False D:\Program Files\Doubao\app\Doubao.exe                                                                              
+ 5064 wetype_update.exe         95.6  False    True C:\Program Files\Tencent\WeType\2.1.3.18\wetype_update.exe                                                          
+28620 msedge.exe                84.9   True   False C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe                                                        
+21116 GameViewer.exe            76.9   True   False C:\Program Files\Netease\GameViewer\bin\GameViewer.exe                                                              
+16312 SenaryAudioApp.exe        61.7   True   False C:\Program Files\WindowsApps\SenaryTechnologyLimited.SenarySmartAudio_2.24.0.0_x64__dqz7eftfn33jw\SenaryAudioApp.exe
+20096 msedgedriver.exe           7.1   True   False C:\Users\45079\.cache\selenium\msedgedriver\win64\148.0.3967.137\msedgedriver.exe                                   
+22780 tail.exe                   4.6   True   False C:\Program Files\Git\usr\bin\tail.exe                                                                               
+24816 sleep.exe                  4.6   True   False C:\Program Files\Git\usr\bin\sleep.exe                                                                              
+25976 crashpad_handler.exe       2.1  False    True D:\AppData\Local\Weixin\4.1.12.55\crashpad_handler.exe                                                              
+21352 crashpad_handler.exe       1.5  False    True C:\Program Files\Netease\GameViewer\bin\crashpad_handler.exe                                                        
+
+
+
+
+=== [4] 全体进程 Top 10（对照：当前内存大头是谁）===
+
+  PID Name                                PrivateMB Orphan Pattern
+  --- ----                                --------- ------ -------
+25900 chrome.exe                             6545.9  False   False
+13752 claude.exe                              842.2  False   False
+22624 claude.exe                              803.5  False   False
+  520 claude.exe                              775.5  False   False
+16824 claude.exe                              700.1  False   False
+12528 claude.exe                              695.4  False   False
+ 5532 MsMpEng.exe                             677.1  False   False
+ 6560 IntelConnectivityNetworkService.exe     660.8  False   False
+26764 claude.exe                              640.1  False   False
+16932 Doubao.exe                              531.5  False   False
+
+
+
