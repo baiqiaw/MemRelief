@@ -18,7 +18,7 @@
 
 ### 1.1 扫描域（scanner 提供）
 
-- **`ProcessSnapshot`**：`Pid`（int，**唯一键，违约定=扫描失败**）、`ParentPid`、`Name`、`ExecutablePath`（可空=受保护/系统/不可读，不可读须伴随 Unreadable SignalFailure）、`CreationTimeUtc`（**Kind 须为 Utc**；身份校验与 PID 复用判定的采集侧输入）、`PrivateCommittedBytes`（long）、`CommandLine`（可空，WMI 通道；null=不可读，通道级失败经 SignalFailure 登记不可行——v1 接受仅字段级 null 表达）、`OwnerUser`（可空=不可读；跨用户预标依据）、`Signals`（SignalSet，1..1）。单位一律字节（PRD 的 MB 为展示换算）。
+- **`ProcessSnapshot`**：`Pid`（int，**唯一键，违约定=扫描失败**）、`ParentPid`、`Name`、`ExecutablePath`（可空=受保护/系统/不可读，不可读须伴随 Unreadable SignalFailure）、`CreationTimeUtc`（**Kind 须为 Utc**；身份校验与 PID 复用判定的采集侧输入；不可读=MinValue 哨兵，§2 T-01 裁决）、`PrivateCommittedBytes`（long）、`CommandLine`（可空，WMI 通道；null=不可读，通道级失败经 SignalFailure 登记不可行——v1 接受仅字段级 null 表达）、`OwnerUser`（可空=不可读；跨用户预标依据；格式=裸用户名，§2 T-01 裁决）、`Signals`（SignalSet，1..1）。单位一律字节（PRD 的 MB 为展示换算）。
 - **`SignalSet`**（字段级；**仅采集型信号**，名单匹配类判定归 rules 派生）：
 
   | 字段 | 类型/枚举 | 对应口径# |
@@ -39,7 +39,7 @@
 
   （#2 残留模式库、#5 常驻、#11 安全软件、#13 阈值、#14 白名单为 rules 派生判定，无采集字段。）
   **配对不变量（强制）**：某口径采集失败时，除字段自身 null 语义外，必须同时登记对应 SignalFailure——rules 以 Failures 为保守兜底的事实源，字段默认值（false/0/空集）不构成「已核实」证据。
-- **`SignalFailure`**：`SignalId`（口径表编号）、`Pid`（int?，null=采集器级全局失败，非单进程）、`Kind`（enum{AccessDenied=打开受拒/PPL，Unreadable=部分元数据不可读，CollectorFailed=采集器/通道失败}）、`Detail`（人读原因，不作判定输入）。**保守兜底按 Kind+Pid 精确承载**（system 法-3）：AccessDenied→🚫受保护；Unreadable/CollectorFailed→相关进程不进✅。全局失败（Pid=null）v1 语义=全量进程不进✅（全有全无；代价已接受：采集器级失败意味着扫描数据整体不可信）。
+- **`SignalFailure`**：`SignalId`（口径表编号；基础字段失败另有 100–103 编号段与 0 保留值，见 §2 T-01 裁决③）、`Pid`（int?，null=采集器级全局失败，非单进程）、`Kind`（enum{AccessDenied=打开受拒/PPL，Unreadable=部分元数据不可读，CollectorFailed=采集器/通道失败}）、`Detail`（人读原因，不作判定输入）。**保守兜底按 Kind+Pid 精确承载**（system 法-3）：AccessDenied→🚫受保护；Unreadable/CollectorFailed→相关进程不进✅。全局失败（Pid=null）v1 语义=全量进程不进✅（全有全无；代价已接受：采集器级失败意味着扫描数据整体不可信）。
 - **`ClassificationContext`**：`SelfPid`（本工具自身 PID，🚫"本工具自身"判定依据）、`CurrentUserName`（string?，当前用户，跨用户预标依据，T-07 消费；null=获取失败→跨用户预标不可判，兜底方向归 T-07 裁决）。编排方构造后注入 rules，保持判定纯函数（不含环境读取）。
 - **`ScanResult`**：`TakenAtUtc`、`ProcessCount`（=Snapshots.Count 的冗余快照，语义=尝试枚举总数；v1 与 Snapshots 一致）、`DurationMs`、`Snapshots`、`Failures`。不可变（构造后调用方不得变更底层集合，实现以防御性拷贝保证）。
 - **`MemoryOverview`**：`PhysicalTotalBytes`、`InUseBytes`、`CommitBytes`、`CommitLimitBytes`、`StandbyBytes`（可空=降级）、`Source`（enum{NtQuery, Pdh, Degraded}）。
@@ -75,6 +75,8 @@
 > 2026-09-05（T-06 开工裁决）：① `SignalFailure` 结构化——加 `Pid`（精确兜底绑定，null=采集器级）与 `Kind` 枚举（判定引擎不可匹配自由文本；承载 GWT#12 PPL/🚫 与 #13 提权/⚠️ 的区分）；② 新增 `ClassificationContext`（SelfPid=「本工具自身」🚫判定依据；CurrentUserName 供 T-07 跨用户预标）——纯函数约束下环境信息一律参数注入；③ `ProcessSnapshot` 补 `Signals`（SignalSet，1..1）聚合关系澄清。实现于 T-06。
 >
 > 2026-09-07（T-07 开工裁决）：① `QueryResult` 定形——Target=(Pid,Name)、Outcome 复用 `Level` 枚举（Unmatched=未命中规则、Whitelisted=白名单排除）、Bases 与 Classification 逐字段一致；Query 消费编排方持有的 Classify 全量输出不重算（rules §4.1 既有口径）；同名多进程全返回，Pid 优先于名。② 跨用户预标 null 兜底方向（§1.1 预留裁决点）：`OwnerUser` 或 `CurrentUserName` 为 null（含获取失败）→ 不预标——预标语义=「已知需管理员」的正面标记，不可判≠已知；漏标风险由释放分类执行期兜底（PRD F3 步骤 7）。两侧均非 null 时按 OrdinalIgnoreCase 比较，不等 → 置 `RequiresElevation=true` 并附依据（SignalId=0 入 Bases）；预标不改级、不参与冲突消解。实现于 T-07。
+>
+> 2026-09-07（T-01 开工裁决）：① `OwnerUser` 格式口径（#27 裁决，用户选定）：采集侧归一**裸所有者名**（LookupAccountSid 账户名分量，不含域前缀），与编排侧 `CurrentUserName`（`Environment.UserName`，裸名）同格式，T-07 整串 OrdinalIgnoreCase 比较成立；跨域同名用户不可区分 → 漏预标，由释放分类执行期兜底（与 null 兜底同向）。② `CreationTimeUtc` 不可读表达：非空字段维持，不可读（打开被拒/查询失败）→ `DateTime.MinValue`（Kind=Utc）哨兵 + 配对 SignalFailure；哨兵不参与 PID 复用比较（任一方哨兵→不复用判定，失败记录兜底不进✅）。③ 基础字段失败编号段：`SignalId=100` 路径、`101` 创建时间、`102` 私有提交、`103` 所有者（scanner 采集侧专用，非口径表 1–15；`0` 仍为进程级保留值）；进程级打开失败（OpenProcess 被拒/进程已消失）单条记录 SignalId=0、Kind=AccessDenied（被拒）/Unreadable（消失），覆盖路径/创建时间/私有提交/所有者四字段，不逐字段重复记录；私有提交不可读值=0（口径#13 兜底）。④ 扫描中途退出进程保留于快照（时点口径），元数据不可读落 Unreadable。⑤ `CommandLine` WMI 通道 1.5s 超时：超时按通道级失败 → 全量字段级 null、无记录（本节 v1 既有口径）。实现于 T-01。
 
 ## 3. SLA / 非功能
 

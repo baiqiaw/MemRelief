@@ -91,3 +91,21 @@ public record ScanResult(
     public IReadOnlyList<ProcessSnapshot> Snapshots { get; init; } = Snapshots ?? Array.Empty<ProcessSnapshot>();
     public IReadOnlyList<SignalFailure> Failures { get; init; } = Failures ?? Array.Empty<SignalFailure>();
 }
+
+/// <summary>内存概览三数值（data-contracts §1.1；T-05 采样实现，ui/releaser 消费）。</summary>
+public record MemoryOverview(
+    long PhysicalTotalBytes,
+    long InUseBytes,
+    long CommitBytes,
+    long CommitLimitBytes,
+    long? StandbyBytes,
+    MemoryOverviewSource Source);
+
+public enum MemoryOverviewSource
+{
+    NtQuery,
+    Pdh,
+
+    /// <summary>降级：standby 不可得，StandbyBytes=null。</summary>
+    Degraded,
+}

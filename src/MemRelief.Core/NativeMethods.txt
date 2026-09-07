@@ -1,0 +1,14 @@
+// CsWin32 生成清单（system-spec §4：Win32 经 CsWin32；NtQuery/WMI 为手写例外不入此清单）
+CreateToolhelp32Snapshot
+Process32FirstW
+Process32NextW
+OpenProcess
+CloseHandle
+GetProcessTimes
+QueryFullProcessImageName
+GetProcessMemoryInfo
+PROCESS_MEMORY_COUNTERS_EX
+OpenProcessToken
+GetTokenInformation
+TOKEN_USER
+LookupAccountSid

@@ -2,7 +2,7 @@ using MemRelief.Core;
 
 namespace MemRelief.Core.Tests;
 
-// 占位测试：仅证明覆盖率链路（采集→阈值判定）端到端可用；ProductInfo 为占位类，T-01 落地后复核是否保留
+// 产品元数据守卫：Name/Version 供应用标题/日志头/自检输出消费
 public class ProductInfoTests
 {
     [Fact]

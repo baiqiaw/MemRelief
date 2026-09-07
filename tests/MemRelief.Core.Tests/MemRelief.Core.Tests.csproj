@@ -10,6 +10,8 @@
          局部/单测运行不被全量阈值误伤 -->
     <CollectCoverage>true</CollectCoverage>
     <Include>[MemRelief.Core]*</Include>
+    <!-- CsWin32 生成的 Windows.Win32* 互操作类型不入自研覆盖率口径（无手写逻辑；正常路径由真机集成冒烟实跑） -->
+    <Exclude>[MemRelief.Core]Windows.Win32*</Exclude>
   </PropertyGroup>
 
   <ItemGroup>

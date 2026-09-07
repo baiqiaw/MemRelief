@@ -1,6 +1,6 @@
 namespace MemRelief.Core;
 
-// 占位类：证明测试→覆盖率→阈值门禁链路端到端可用；T-01 落地后复核是否保留（issue #1 已登记）
+// 产品元数据（T-01 复核结论：保留，供应用标题/日志头/自检输出消费）
 // 用属性而非 const：保证可插桩（覆盖率有真实数据点），且避免 const 内联的版本化问题
 public static class ProductInfo
 {

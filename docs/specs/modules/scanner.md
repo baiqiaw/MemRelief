@@ -22,7 +22,7 @@
 ## 4. 行为
 
 ### 4.1 关键用例
-- **采集快照**：`Task<ScanResult> TakeSnapshot()` → 异步枚举（进程/PPID/私有提交/创建时间/路径/命令行[WMI 通道]/所有者）→ 采集型信号按 [PRD 口径表 #1–#15](../../PRD.md) 中属采集侧的项执行（Run 键 WOW64 双视图、QueryServiceConfig2[CsWin32]、ITaskService[手写例外]等）→ 返回。
+- **采集快照**：`Task<ScanResult> TakeSnapshot()` → 异步枚举（进程/PPID/私有提交/创建时间/路径/命令行[WMI 通道]/所有者；命令行 WMI 查询与原生枚举重叠执行，编排层决策——WMI 冷启动较慢，重叠缩短采集关键路径）→ 采集型信号按 [PRD 口径表 #1–#15](../../PRD.md) 中属采集侧的项执行（Run 键 WOW64 双视图、QueryServiceConfig2[CsWin32]、ITaskService[手写例外]等）→ 返回。
 - **候选验签（两阶段，法级）**：`Task<ScanResult> CollectSignatures(ScanResult, ISet<int> candidatePids)` → 仅对候选执行 WinVerifyTrust 并回填签名字段（口径表 #9"仅候选执行"；缓存见 §6）。编排方在 `CandidateIds`（rules）之后调用（时序见 §4.3）。
 - **采集概览**：`Task<MemoryOverview> SampleOverview()` → NtQuerySystemInformation 优先、PDH 三计数器兜底。
 - **CPU 差分**：扫描窗口首尾两次采样求差（口径表 #7），随快照输出。
@@ -58,4 +58,4 @@ sequenceDiagram
 
 - **法**：采集段预算 ≤2.0s（system §7 端到端 3s 分解的采集份额）；异步不阻塞调用方。
 - **法**：除签名验证缓存外不持有跨快照可变状态；**签名验证结果缓存（路径+mtime 键）为例外且必备**（口径表 #9 成本控制与 ≤3s 前提，[PRD §3.4"缓存生效后"]）——缓存仅存验证结论，不存判定结果。
-- **法**：SignalFailure 逐项落 ScanResult.Failures（system 法-3 的数据基础）。
+- **法**：SignalFailure 逐项落 ScanResult.Failures（system 法-3 的数据基础）；进程级打开失败（OpenProcess 被拒/进程已消失）按单条记录覆盖路径/创建时间/私有提交/所有者四基础字段，不逐字段重复（data-contracts §2 T-01 裁决③）。

@@ -1,9 +1,23 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- CsWin32 源生成的 P/Invoke 使用 unsafe（fixed 缓冲/函数指针） -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Win32 通道（system-spec §4）：CsWin32 源生成；NtQuerySystemInformation 属手写例外，不经此生成 -->
+    <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.333" PrivateAssets="all" />
+    <!-- 他进程命令行采集经 WMI（system-spec §4 手写例外③） -->
+    <PackageReference Include="System.Management" Version="10.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 白盒测试（Scanner.MergeCommandLines 等 internal 纯函数的合成单测） -->
+    <InternalsVisibleTo Include="MemRelief.Core.Tests" />
+  </ItemGroup>
 
 </Project>

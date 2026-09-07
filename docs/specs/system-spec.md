@@ -41,7 +41,7 @@ graph LR
 ## 4. 技术栈
 
 - C# / .NET 10（LTS 至 2028-11；2026-09-05 开工裁决：.NET 8 EOL 2026-11，新项目直接以 LTS 10 起步，消解原「v2 评估升级」待办）；WPF（App）
-- Win32 经 CsWin32 源生成器；**手写例外**（不入 CsWin32 口径，[PRD §3.3](../PRD.md)）：①计划任务 ITaskService（COM 激活与 marshaling 控制更直接）②系统内存信息 NtQuerySystemInformation；③他进程命令行采集经 WMI（System.Management，基线采样脚本已验证 WMI 通道可行；CommandLine 字段待 T-01 实测）
+- Win32 经 CsWin32 源生成器；**手写例外**（不入 CsWin32 口径，[PRD §3.3](../PRD.md)）：①计划任务 ITaskService（COM 激活与 marshaling 控制更直接）②系统内存信息 NtQuerySystemInformation；③他进程命令行采集经 WMI（System.Management，基线采样脚本已验证 WMI 通道可行；CommandLine 字段 T-01 已实装并真机冒烟实测）
 - 测试（情报，可择路）：xUnit + coverlet
 - 解决方案结构（**多项目，编译期隔离**）：
   ```
@@ -80,7 +80,7 @@ graph LR
 
 ## 7. 非功能需求（系统级）
 
-引用 [PRD §3.4](../PRD.md)。**端到端预算分解**（PRD 3s 口径 = 点击"开始扫描"→列表渲染完成，spec 派生分解）：采集 ≤2.0s + 候选验签 ≤0.5s + 判定 ≤0.3s + 渲染 ≤0.2s；模块级法条采用各自份额，不得标注"PRD §3.4 计时口径"。其余：单树 ≤5s/整批 ≤30s、自身工作集 ≤100MB、Win11 x64 实测。Core 全模块可脱离 UI 由 xUnit 驱动（M1 验收形态）；Core 行覆盖率（全量 total 口径，coverlet.msbuild 承载）≥80%。
+引用 [PRD §3.4](../PRD.md)。**端到端预算分解**（PRD 3s 口径 = 点击"开始扫描"→列表渲染完成，spec 派生分解）：采集 ≤2.0s + 候选验签 ≤0.5s + 判定 ≤0.3s + 渲染 ≤0.2s；模块级法条采用各自份额，不得标注"PRD §3.4 计时口径"。其余：单树 ≤5s/整批 ≤30s、自身工作集 ≤100MB、Win11 x64 实测。Core 全模块可脱离 UI 由 xUnit 驱动（M1 验收形态）；Core 行覆盖率（全量 total 口径，coverlet.msbuild 承载；**排除 CsWin32 生成类型 `Windows.Win32*` 与互操作适配类，见变更记录 2026-09-07**）≥80%。
 
 ## 8. 部署拓扑要点
 
@@ -94,3 +94,4 @@ graph LR
 | 2026-09-05 | 评审修订：扫描链改拉模式编排（删冗余事件）+组合根节；预算分解（3s 端到端口径澄清）；架构图修正（删 Scanner→Storage 边、rules 参数注入）；名单统一四份；计数修正；法-1 升级为产物级检查；.NET 8 EOL 提示 | system + 全部 modules |
 | 2026-09-05 | 技术栈 .NET 8 → .NET 10 LTS（T-18 开工裁决），消解 v2 升级待办 | §4 |
 | 2026-09-05 | 评审修订（T-18 cross-review）：法-1 判定载体由「CI」改门禁脚本（CI 未建）；覆盖率口径「变更行 >80%」改「全量 total ≥80%」（与实现承载一致，消解孤本）；§4 ③ WMI 归因精确化 | §4/§6/§7 |
+| 2026-09-07 | 覆盖率口径精确化（T-01 开工裁决）：§7「全量 total」排除 CsWin32 生成类型（`Windows.Win32*`，编入 Core 程序集的互操作物，无手写逻辑）与互操作适配类（`NativeProcessEnumerator`/`WmiCommandLineSource`，`[ExcludeFromCodeCoverage]`——纯互操作样板+错误码机械翻译，无判定/映射逻辑；其中防御性分支与错误翻译路径在健康真机不可全部触发，正常路径由真机集成冒烟实跑验证；判定/映射逻辑全数在纯函数装配层全量单测覆盖）；阈值 ≥80% 本身不变 | §7 |
