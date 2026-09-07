@@ -46,8 +46,8 @@
 
 ### 1.2 判定域（rules 提供）
 
-- **`Classification`**：`Pid`、`Level`（enum{Recommend, Caution, Protected, Unmatched, Whitelisted}；**代码枚举序 Unmatched=0** 为防御性默认）、`Bases`（有序 `Basis{SignalId, Detail}`；SignalId=口径表编号，**0=保留值**：非口径表依据[采集失败兜底/本工具自身/系统保护穷举名/名单不可用]，口径表无对应行）、`TreePrivateBytes`（long，树合计唯一承载）、`WouldBeRevived`（bool?，null=不适用/未评估）、`SourceEntries`、`RequiresElevation`（bool，预标：服务[口径#8]与受拒[口径#11]由 T-06 Classify 输出；跨用户预标归 T-07，含依据入 Bases）。
-- **`QueryResult`**：`Target`、`Outcome`（各级/未命中规则/白名单排除）、`Bases`。（T-07 交付）
+- **`Classification`**：`Pid`、`Level`（enum{Recommend, Caution, Protected, Unmatched, Whitelisted}；**代码枚举序 Unmatched=0** 为防御性默认）、`Bases`（有序 `Basis{SignalId, Detail}`；SignalId=口径表编号，**0=保留值**：非口径表依据[采集失败兜底/本工具自身/系统保护穷举名/名单不可用/跨用户预标]，口径表无对应行）、`TreePrivateBytes`（long，树合计唯一承载）、`WouldBeRevived`（bool?，null=不适用/未评估）、`SourceEntries`、`RequiresElevation`（bool，预标：服务[口径#8]与受拒[口径#11]由 T-06 Classify 输出；跨用户预标归 T-07，含依据入 Bases）。
+- **`QueryResult`**（T-07 交付）：`Pid`+`Name`（=契约的 Target，被定位进程）、`Outcome`（复用 `Level` 枚举：Recommend/Caution/Protected=各级；Unmatched=未命中规则不进列表；Whitelisted=白名单排除——不另设第二套分级枚举。v1 引擎结构上不产生 Unmatched——每进程至少命中一条依据，此通道为防御性保留）、`Bases`（=对应 Classification 的依据，逐字段一致）。`Query` 按 Pid 或进程名（OrdinalIgnoreCase）定位，同名多进程全部返回（每进程一个 `QueryResult`，调用方得到 `IReadOnlyList<QueryResult>`）；Pid 与名同时给出时 Pid 优先（名参数忽略）；两者均空 → 空集；classifications 缺项的进程不返回。Query 消费编排方持有的 Classify 全量输出（不重算判定，判定单一事实源=Classify）。
 
 ### 1.3 释放域（releaser 提供）
 
@@ -73,6 +73,8 @@
 契约变更流程（system 法-5）：先改本文件 → 评审 → 再改实现。v1 文件格式不设版本字段（单机自用、可重建）；破坏性语义变更以 spec 变更记录 + 显式迁移声明承载。事件/数据字段可新增（新增=兼容），删除或语义反转=破坏性（须评审记录）。
 
 > 2026-09-05（T-06 开工裁决）：① `SignalFailure` 结构化——加 `Pid`（精确兜底绑定，null=采集器级）与 `Kind` 枚举（判定引擎不可匹配自由文本；承载 GWT#12 PPL/🚫 与 #13 提权/⚠️ 的区分）；② 新增 `ClassificationContext`（SelfPid=「本工具自身」🚫判定依据；CurrentUserName 供 T-07 跨用户预标）——纯函数约束下环境信息一律参数注入；③ `ProcessSnapshot` 补 `Signals`（SignalSet，1..1）聚合关系澄清。实现于 T-06。
+>
+> 2026-09-07（T-07 开工裁决）：① `QueryResult` 定形——Target=(Pid,Name)、Outcome 复用 `Level` 枚举（Unmatched=未命中规则、Whitelisted=白名单排除）、Bases 与 Classification 逐字段一致；Query 消费编排方持有的 Classify 全量输出不重算（rules §4.1 既有口径）；同名多进程全返回，Pid 优先于名。② 跨用户预标 null 兜底方向（§1.1 预留裁决点）：`OwnerUser` 或 `CurrentUserName` 为 null（含获取失败）→ 不预标——预标语义=「已知需管理员」的正面标记，不可判≠已知；漏标风险由释放分类执行期兜底（PRD F3 步骤 7）。两侧均非 null 时按 OrdinalIgnoreCase 比较，不等 → 置 `RequiresElevation=true` 并附依据（SignalId=0 入 Bases）；预标不改级、不参与冲突消解。实现于 T-07。
 
 ## 3. SLA / 非功能
 

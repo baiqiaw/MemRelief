@@ -35,3 +35,16 @@ public record Classification(
 
 /// <summary>编排方构造的判定上下文：纯函数约束下环境信息一律参数注入（契约 2026-09-05 修订）。</summary>
 public record ClassificationContext(int SelfPid, string? CurrentUserName);
+
+/// <summary>
+/// 判定查询结果（R02 搜索框）。Target=(Pid,Name)；Outcome 复用 Level：
+/// Unmatched=未命中规则不进列表、Whitelisted=白名单排除；Bases 与对应 Classification 一致。
+/// </summary>
+public record QueryResult(
+    int Pid,
+    string Name,
+    Level Outcome,
+    IReadOnlyList<Basis> Bases)
+{
+    public IReadOnlyList<Basis> Bases { get; init; } = Bases ?? Array.Empty<Basis>();
+}

@@ -2,7 +2,7 @@ using MemRelief.Core.Contracts;
 
 namespace MemRelief.Core.Rules;
 
-/// <summary>判定引擎（rules 模块）。T-06 范围：Classify 主链（含服务/受拒预标）；CandidateIds/Query/跨用户预标归 T-07。</summary>
+/// <summary>判定引擎（rules 模块）。Classify 主链（T-06）+ 候选预筛/查询/跨用户预标（T-07）。</summary>
 public interface IRulesEngine
 {
     Task<IReadOnlyList<Classification>> Classify(
@@ -10,6 +10,14 @@ public interface IRulesEngine
         WhitelistSnapshot whitelist,
         RulePack rulePack,
         ClassificationContext context);
+
+    ISet<int> CandidateIds(ScanResult scan);
+
+    IReadOnlyList<QueryResult> Query(
+        ScanResult scan,
+        IReadOnlyList<Classification> classifications,
+        string? name,
+        int? pid);
 }
 
 /// <summary>
@@ -18,7 +26,7 @@ public interface IRulesEngine
 /// 白名单完全排除；树合计唯一承载于 Classification.TreePrivateBytes；
 /// 保护性判定所需数据缺失（SignalFailure/名单缺失/null 语义）→ 不进✅级（system 法-3）。
 /// 判定语义唯一事实源 = PRD F1 口径表 #1–#15。
-/// 依据编号：SignalId = 口径表编号；0 = 非口径表依据保留值（兜底/本工具自身/系统保护穷举名/名单不可用）。
+/// 依据编号：SignalId = 口径表编号；0 = 非口径表依据保留值（兜底/本工具自身/系统保护穷举名/名单不可用/跨用户预标）。
 /// </summary>
 public sealed class RulesEngine : IRulesEngine
 {
@@ -36,6 +44,79 @@ public sealed class RulesEngine : IRulesEngine
     {
         IReadOnlyList<Classification> result = ClassifyCore(scan, whitelist, rulePack, context);
         return Task.FromResult(result);
+    }
+
+    /// <summary>
+    /// 候选预筛（scanner §4.3 时序第 2 步）：需验签的候选 PID 集，供编排方驱动 CollectSignatures。
+    /// 谓词保守过包含：排除且仅排除「无论签名结果如何终局必🚫」者；
+    /// 白名单/本工具自身/名单命中进程不在单参数入参可判范围，一律入选（多验无害，
+    /// Classify 终局闸门兜底，v1 已知边界）。纯函数：同输入同输出，零 I/O 零状态。
+    /// </summary>
+    public ISet<int> CandidateIds(ScanResult scan)
+    {
+        var accessDeniedPids = scan.Failures
+            .Where(f => f.Kind == FailureKind.AccessDenied && f.Pid.HasValue)
+            .Select(f => f.Pid!.Value)
+            .ToHashSet();
+
+        var candidates = new HashSet<int>();
+        foreach (var p in scan.Snapshots)
+        {
+            if (accessDeniedPids.Contains(p.Pid))
+            {
+                continue; // 口径 #11 终局🚫，签名状态无关
+            }
+
+            var s = p.Signals;
+            // UWP 终态仅受签名影响（⚠️/🚫），目录/窗口/服务恢复不影响终局
+            if (!s.IsUwpPackage)
+            {
+                // null 与 Classify 同向保守：视为系统目录/有窗口
+                if (s.IsSystemDirectory != false || s.HasVisibleWindow != false)
+                {
+                    continue;
+                }
+            }
+
+            if (s.ServiceName != null && s.ServiceRestartOnFailure == false)
+            {
+                continue; // 服务类不恢复终局🚫（v1.2 裁决），签名状态无关
+            }
+
+            candidates.Add(p.Pid);
+        }
+
+        return candidates;
+    }
+
+    /// <summary>
+    /// 全量判定查询（R02 搜索框）：消费编排方持有的 Classify 全量输出定位目标，不重算判定
+    /// （判定单一事实源=Classify，搜索结果与列表展示零漂移）。
+    /// Pid 与名同时给出时 Pid 优先；同名多进程全部返回；名称匹配 OrdinalIgnoreCase。
+    /// Outcome 复用 Level：Unmatched=未命中规则、Whitelisted=白名单排除。
+    /// </summary>
+    public IReadOnlyList<QueryResult> Query(
+        ScanResult scan,
+        IReadOnlyList<Classification> classifications,
+        string? name,
+        int? pid)
+    {
+        var byPid = classifications.ToDictionary(c => c.Pid); // Pid 唯一是 scanner 契约（data-contracts §1.1），违约输入快速失败
+        var results = new List<QueryResult>();
+        foreach (var p in scan.Snapshots)
+        {
+            var hit = pid.HasValue
+                ? p.Pid == pid.Value
+                : name != null && string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase);
+            if (!hit || !byPid.TryGetValue(p.Pid, out var c))
+            {
+                continue;
+            }
+
+            results.Add(new QueryResult(p.Pid, p.Name, c.Level, c.Bases));
+        }
+
+        return results;
     }
 
     private static IReadOnlyList<Classification> ClassifyCore(
@@ -206,6 +287,17 @@ public sealed class RulesEngine : IRulesEngine
                     compromised = true;
                     break;
             }
+        }
+
+        // 跨用户预标（PRD F3"扫描阶段即预标"：所有者非当前用户 → 需管理员）。
+        // 口径表无对应行 → SignalId=0 保留值；任一用户不可读（null，含获取失败）→ 不预标，
+        // 漏标由释放分类执行期兜底（PRD F3 步骤 7，data-contracts §2 T-07 裁决）。
+        // 预标不参与冲突消解，不改级。
+        if (p.OwnerUser != null && ctx.CurrentUserName != null
+            && !string.Equals(p.OwnerUser, ctx.CurrentUserName, StringComparison.OrdinalIgnoreCase))
+        {
+            requiresElevation = true;
+            bases.Add(new Basis(0, $"跨用户进程（所有者：{p.OwnerUser}）——需管理员"));
         }
 
         // 🚫 有可见窗口（口径 #4；枚举失败视为有窗口，保守）
