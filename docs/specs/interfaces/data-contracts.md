@@ -78,6 +78,8 @@
 >
 > 2026-09-07（T-01 开工裁决）：① `OwnerUser` 格式口径（#27 裁决，用户选定）：采集侧归一**裸所有者名**（LookupAccountSid 账户名分量，不含域前缀），与编排侧 `CurrentUserName`（`Environment.UserName`，裸名）同格式，T-07 整串 OrdinalIgnoreCase 比较成立；跨域同名用户不可区分 → 漏预标，由释放分类执行期兜底（与 null 兜底同向）。② `CreationTimeUtc` 不可读表达：非空字段维持，不可读（打开被拒/查询失败）→ `DateTime.MinValue`（Kind=Utc）哨兵 + 配对 SignalFailure；哨兵不参与 PID 复用比较（任一方哨兵→不复用判定，失败记录兜底不进✅）。③ 基础字段失败编号段：`SignalId=100` 路径、`101` 创建时间、`102` 私有提交、`103` 所有者（scanner 采集侧专用，非口径表 1–15；`0` 仍为进程级保留值）；进程级打开失败（OpenProcess 被拒/进程已消失）单条记录 SignalId=0、Kind=AccessDenied（被拒）/Unreadable（消失），覆盖路径/创建时间/私有提交/所有者四字段，不逐字段重复记录；私有提交不可读值=0（口径#13 兜底）。④ 扫描中途退出进程保留于快照（时点口径），元数据不可读落 Unreadable。⑤ `CommandLine` WMI 通道 1.5s 超时：超时按通道级失败 → 全量字段级 null、无记录（本节 v1 既有口径）。实现于 T-01。
 
+> 2026-09-08（T-05 开工裁决）：① PDH 内存通道走手写 P/Invoke（pdh.dll 薄通道，`ExcludeFromCodeCoverage`）——`PDH_FMT_COUNTERVALUE` 匿名联合在 CsWin32 `allowMarshaling=false` 下生成访问形态不稳，与 NtQuerySystemInformation 手写例外同类延伸（system-spec §4 例外清单已同步第④项）。② `MemoryOverviewSource` 语义：`NtQuery`/`Pdh`=standby 可得；`Degraded` ⇔ `StandbyBytes=null`（standby 不可得，AC 口径）。③ 通道梯为三级：NtQuery（含 standby）→ PDH（commit/available/standby）→ GlobalMemoryStatusEx 终底（规格双通道皆败的契约空档落点：commit 用页面文件口径近似——`CommitLimitBytes≈页面文件总量`、standby 恒 null、恒标 `Degraded`，ui 按 `Source=Degraded` 呈现降级）。④ 偏移实证：NtQuery 可用内存与 PDH/GMS 同刻对照 ≤10%、commit/standby 双通道互证（真机 2026-09-08）；开发中曾因漏算前缀 3×ULONG I/O 操作计数致错位（按 @32 取址），修正为实证布局 AvailablePages@0x2C/CommittedPages@0x30/CommitLimit@0x34（32/64 位同构，出处 Geoff Chappell SystemPerformanceInformation）。实现于 T-05。
+
 ## 3. SLA / 非功能
 
 分段预算（system §7 分解）：`TakeSnapshot` ≤2.0s、`CollectSignatures` ≤0.5s、`Classify` ≤0.3s（端到端 3s 含渲染，[PRD §3.4](../../PRD.md)）；`ReleaseCompleted` 端到端 ≤30s。

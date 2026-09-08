@@ -1,4 +1,4 @@
-// CsWin32 生成清单（system-spec §4：Win32 经 CsWin32；NtQuery/WMI 为手写例外不入此清单）
+// CsWin32 生成清单（system-spec §4：Win32 经 CsWin32；NtQuery/PDH/WMI 为手写例外不入此清单）
 CreateToolhelp32Snapshot
 Process32FirstW
 Process32NextW
@@ -12,3 +12,5 @@ OpenProcessToken
 GetTokenInformation
 TOKEN_USER
 LookupAccountSid
+GlobalMemoryStatusEx
+MEMORYSTATUSEX

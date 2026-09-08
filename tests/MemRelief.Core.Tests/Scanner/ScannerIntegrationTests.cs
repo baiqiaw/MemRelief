@@ -82,7 +82,61 @@ public class ScannerIntegrationTests
         var snapshot = await scanner.TakeSnapshot();
 
         // 同步抛出（非 faulted task），块体 lambda 返回 void 使 Throws 捕获同步异常
+        // SampleOverview 已于 T-05（issue #9）实装，退出本断言
         Assert.Throws<NotImplementedException>(() => { _ = scanner.CollectSignatures(snapshot, new HashSet<int>()); });
-        await Assert.ThrowsAsync<NotImplementedException>(() => scanner.SampleOverview());
+    }
+}
+
+// —— T-05 概览采样真机冒烟（通道可用性 + 同刻对照代理；正式资源监视器对照归 T-22）——
+
+public class MemoryOverviewIntegrationTests
+{
+    [Fact]
+    public async Task 概览采样_真机字段健全且降级语义成立()
+    {
+        var overview = await new ScannerImpl().SampleOverview();
+
+        Assert.True(overview.PhysicalTotalBytes > 0, "物理总量须为正");
+        Assert.InRange(overview.InUseBytes, 0, overview.PhysicalTotalBytes);
+        Assert.True(overview.CommitLimitBytes > 0 && overview.CommitBytes >= 0, "commit 口径须健全");
+        // 偏移错位绊线：Windows commit limit 恒 ≥ 物理内存；错位读值几乎必然击穿其一
+        Assert.True(overview.CommitLimitBytes >= overview.PhysicalTotalBytes, "CommitLimit 不得低于物理内存（偏移错位绊线）");
+        Assert.True(overview.CommitBytes <= overview.CommitLimitBytes, "Commit 不得超 CommitLimit（偏移错位绊线）");
+        if (overview.Source == MemoryOverviewSource.Degraded)
+        {
+            Assert.Null(overview.StandbyBytes);
+        }
+        else
+        {
+            Assert.NotNull(overview.StandbyBytes);
+        }
+    }
+
+    [Fact]
+    public async Task 概览采样_与全局内存状态同刻对照误差在一成内()
+    {
+        // R05 GWT 自动化代理：与 GlobalMemoryStatusEx 同刻对照（资源监视器正式对照归 T-22 真机验收）
+        var overview = await new ScannerImpl().SampleOverview();
+        var gms = GlobalMemoryChannel.QuerySnapshot();
+        var inUseProxy = gms.TotalPhysBytes - gms.AvailPhysBytes;
+
+        var diff = Math.Abs(overview.InUseBytes - inUseProxy);
+        Assert.True(diff <= gms.TotalPhysBytes * 0.10,
+            $"同刻对照超 10%：采样 {overview.InUseBytes:N0} vs 全局内存代理 {inUseProxy:N0}（Source={overview.Source}）");
+    }
+
+    [Fact]
+    public void PDH通道_真机直调_核心计数器健全()
+    {
+        // 通道梯下健康真机 PDH 分支不可达（NtQuery 恒先成功），直调兜底通道保自动化触发证据
+        var ok = PdhMemoryChannel.TryQuery(out var committed, out var limit, out var available, out var standby);
+
+        Assert.True(ok, "PDH 通道真机应可用");
+        Assert.True(committed > 0 && limit > 0 && available > 0, $"PDH 计数器异常：committed={committed:N0} limit={limit:N0} avail={available:N0}");
+        Assert.True(limit >= committed, "CommitLimit 不得低于 Committed");
+        if (standby is not null)
+        {
+            Assert.True(standby.Value > 0, "standby 非降级时须为正值");
+        }
     }
 }

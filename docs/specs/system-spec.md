@@ -41,7 +41,7 @@ graph LR
 ## 4. 技术栈
 
 - C# / .NET 10（LTS 至 2028-11；2026-09-05 开工裁决：.NET 8 EOL 2026-11，新项目直接以 LTS 10 起步，消解原「v2 评估升级」待办）；WPF（App）
-- Win32 经 CsWin32 源生成器；**手写例外**（不入 CsWin32 口径，[PRD §3.3](../PRD.md)）：①计划任务 ITaskService（COM 激活与 marshaling 控制更直接）②系统内存信息 NtQuerySystemInformation；③他进程命令行采集经 WMI（System.Management，基线采样脚本已验证 WMI 通道可行；CommandLine 字段 T-01 已实装并真机冒烟实测）
+- Win32 经 CsWin32 源生成器；**手写例外**（不入 CsWin32 口径，[PRD §3.3](../PRD.md)）：①计划任务 ITaskService（COM 激活与 marshaling 控制更直接）②系统内存信息 NtQuerySystemInformation；③他进程命令行采集经 WMI（System.Management，基线采样脚本已验证 WMI 通道可行；CommandLine 字段 T-01 已实装并真机冒烟实测）；④PDH 内存计数器 pdh.dll（T-05 开工裁决：`PDH_FMT_COUNTERVALUE` 匿名联合在 `allowMarshaling=false` 下生成访问形态不稳，依据见 [data-contracts §2](../specs/interfaces/data-contracts.md)）
 - 测试（情报，可择路）：xUnit + coverlet
 - 解决方案结构（**多项目，编译期隔离**）：
   ```

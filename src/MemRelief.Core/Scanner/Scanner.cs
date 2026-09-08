@@ -36,11 +36,12 @@ public sealed class Scanner : IScanner
         throw new NotImplementedException("CollectSignatures 由 T-04 实装（issue #11）");
     }
 
-    /// <summary>内存概览三数值采样（NtQuerySystemInformation 优先、PDH 三计数器兜底）。</summary>
+    /// <summary>内存概览三数值采样（NtQuerySystemInformation 优先、PDH 三计数器兜底、GlobalMemoryStatusEx 终底）。</summary>
     public Task<MemoryOverview> SampleOverview()
     {
-        // T-05 实装（issue #9）
-        throw new NotImplementedException("SampleOverview 由 T-05 实装（issue #9）");
+        // T-05 实装（issue #9）；通道梯与降级语义收口于 MemoryOverviewSampler（纯函数单测承载）
+        var sampler = new MemoryOverviewSampler();
+        return Task.FromResult(sampler.Sample());
     }
 
     /// <summary>命令行合并（纯函数）：按 pid 补全；commandLines=null=通道级失败→全量保持 null 无记录（裁决⑤）。</summary>

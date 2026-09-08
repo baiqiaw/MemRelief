@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Win32 通道（system-spec §4）：CsWin32 源生成；NtQuerySystemInformation 属手写例外，不经此生成 -->
+    <!-- Win32 通道（system-spec §4）：CsWin32 源生成；NtQuerySystemInformation/PDH 内存通道属手写例外，不经此生成 -->
     <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.333" PrivateAssets="all" />
     <!-- 他进程命令行采集经 WMI（system-spec §4 手写例外③） -->
     <PackageReference Include="System.Management" Version="10.0.11" />
