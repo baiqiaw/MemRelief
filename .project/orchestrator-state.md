@@ -4,34 +4,33 @@
 schema_version: 1
 project: MemRelief
 size_tier: medium                      # WBS 408h ≈ 2.5 人月（1–3 人月档）
-modules_activated: [spec_three_layer, poc, multi_agent_parallel]  # 偏离中档默认矩阵：ui_prototype 跳过（自用无甲方，PRD §1.4）、spec_three_layer 升三层、arch_review 跳过（中档默认即跳）、phased_rollout 跳过（默认可选，待 TL 追认）
+modules_activated: [spec_three_layer, poc, multi_agent_parallel]  # 偏离中档默认矩阵：ui_prototype 跳过（自用无甲方，PRD §1.4）、spec_three_layer 升三层、arch_review 跳过（中档默认即跳）、phased_rollout 跳过（TL 2026-09-08 裁决维持）
 current_phase: "④实现"
-current_step: "④.s1 派发"
+current_step: "④.s2 单测 CASE（T-13 / T-05）"
 step_status:
   "①.s1 范围基线": done                # 回填：无投标环节，范围源 = PRD v1.3；071089c 关闭「本机基线采样」待确认项（M1 前置达成）
   "①.s2 账本+知识底座+缺口视图": done   # 2026-09-07 建；缺口视图=自举场景（无生成器，原料+轴声明就位；入口已在项目 CLAUDE.md 接线，无生成器故无 SessionStart 注入）
-  "①.s3 范围基线签字": pending         # 人工门：待 TL 签字（基线=PRD v1.3）；[reviewed] 为 AI 评审标记，不代替签字
+  "①.s3 范围基线签字": done            # TL 签字 2026-09-08（会话裁决）：基线 = PRD v1.3
   "②.s1 PRD": done                     # v1.0→v1.3 + req-review 六角色（5f1c7f7）
   "②.s2 req-review": done              # go
   "③.s1 Spec": done                    # 三层体系（5aebf9f）= 契约冻结点
   "③.s2 WBS": done                     # v1.0，7 交付物×26 工作包（150a545）
   "③.s3 技术 POC": done                # 基线采样落档（071089c，baseline-sample.ps1）
-  "③.s4 grilling 拷问": done           # 回填：以开工裁决①-⑤（89fa001）与双车道串行化裁决（2026-09-05）替代 grilling，属替代执行非原样跑完，待 TL 追认
+  "③.s4 grilling 拷问": pending        # TL 裁决补跑（2026-09-08）：拷问对象=技术方案/Spec，独立任务执行
   "③.s5 排期": done                    # CPM 29.0d/P80 30.4（ef23a44），issue 已生成
-  "④.s1 派发": in_progress             # 候选：车道B T-13（关键路径）+ 车道A T-05，capacity=2；T-23 产物（追踪表）已合 main 待 AC 关单
-worker_assignment: {}                  # 待 TL 确认派发后写入
+  "④.s1 派发": done                    # 2026-09-08 TL 确认：T-13（车道B）+ T-05（车道A）双开
+  "④.s2 单测 CASE": in_progress
+worker_assignment:
+  dev_a: WP-T-13                       # 车道B：名单资源装载（#9，关键路径浮动 0）
+  dev_b: WP-T-05                       # 车道A：内存概览采样（#5，浮动 4）
 gate_status:
-  "①立项": in_progress                 # 差一项：①.s3 范围基线 TL 签字
+  "①立项": passed
   "②需求": passed
-  "③设计": passed
+  "③设计": in_progress                 # 差 ③.s4 grilling 补跑
   "④实现": in_progress                 # 每 WP：TDD 绿+Review+git 干净+覆盖率≥80%；AC 签字关单归 issue
   "⑤验收": pending
   "⑥回流": pending
-gate_failures:
-  - gate: "①立项"
-    item: "①.s3 范围基线 TL 签字（基线 = PRD v1.3）"
-    owner: TL
-    blocked_since: 2026-09-07
+gate_failures: []
 gate_overrides: []
 change_log: []
 skill_overrides: []
@@ -45,7 +44,7 @@ artifacts:
   kb_update: ""                        # ⑥ 回流落点
   gap_view: ""                         # 自举场景：无生成器文件，next-step 按 SKILL.md 自举流程内联派生
   gap_view_axis: "WBS 交付物（7 个，承诺分组维度）"
-last_updated: 2026-09-07
+last_updated: 2026-09-08
 ---
 
 # MemRelief 编排账本
