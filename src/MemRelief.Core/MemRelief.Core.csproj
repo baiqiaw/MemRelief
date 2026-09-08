@@ -16,6 +16,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 内置名单（storage T-13）：只读嵌入资源，随单文件发布（storage 法：除白名单/日志外零文件写入） -->
+    <EmbeddedResource Include="Storage\Resources\*.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- 白盒测试（Scanner.MergeCommandLines 等 internal 纯函数的合成单测） -->
     <InternalsVisibleTo Include="MemRelief.Core.Tests" />
   </ItemGroup>

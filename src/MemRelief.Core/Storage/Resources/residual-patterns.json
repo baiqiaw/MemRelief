@@ -1,0 +1,8 @@
+[
+  // 残留模式库首版基线（PRD 附录 #1，不区分大小写子串匹配）；随用户反馈增删（负责人：用户）
+  "updater",
+  "update.exe",
+  "crashpad",
+  "crashreporter",
+  "setup"
+]

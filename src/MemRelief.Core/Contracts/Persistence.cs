@@ -24,3 +24,18 @@ public record RulePack(
     public static RulePack Empty { get; } = new(
         Array.Empty<string>(), Array.Empty<string>(), Array.Empty<SecurityApp>(), Array.Empty<string>());
 }
+
+/// <summary>四份内置名单（对应 <see cref="RulePack"/> 四数组；基线内容见 PRD 附录名单清单）。</summary>
+public enum RulePackList
+{
+    ResidualPatterns,
+    ResidentApps,
+    SecurityApps,
+    ProtectedProcesses,
+}
+
+/// <summary>名单加载失败上报（List 定位名单，Reason 人读）。</summary>
+public record RulePackLoadFailure(RulePackList List, string Reason);
+
+/// <summary>装载结果：Pack 恒非 null（失败名单置空数组）；Failures 非空时编排方应传 RulePack.Empty 兜底。</summary>
+public record RulePackLoadResult(RulePack Pack, IReadOnlyList<RulePackLoadFailure> Failures);

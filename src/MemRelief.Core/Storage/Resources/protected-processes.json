@@ -1,0 +1,12 @@
+[
+  // 系统保护名单首版基线（PRD 附录 #4，穷举名精确匹配）
+  "smss.exe",
+  "csrss.exe",
+  "wininit.exe",
+  "winlogon.exe",
+  "services.exe",
+  "lsass.exe",
+  "svchost.exe",
+  "dwm.exe",
+  "lsaiso.exe"
+]
