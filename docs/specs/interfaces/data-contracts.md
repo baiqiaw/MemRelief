@@ -64,7 +64,8 @@
 
 ### 1.5 事件契约（异步通知；同步结果走方法返回值）
 
-- `TreeProgress(TreePlanId, TreeState)`：releaser → ui；树级粒度。
+- **线程亲和性（③.s4 grilling 裁决 2026-09-08）**：事件均从提供模块工作线程发出（releaser：`TreeProgress`/`ReleaseCompleted`；scanner：`ScanFailed`），提供方不做线程切换；ui（App 编排）负责编组（marshal）到 UI 线程（ui.md 既有法条同口径）。
+- `TreeProgress(TreePlan.Id, TreeState)`：releaser → ui；树级粒度（`TreeState` 枚举随 T-09 契约化）。
 - `ReleaseCompleted(ReleaseReport)`：releaser → ui；**至多一次**；App 编排据此调 `IReleaseLogStore.Append`（单路径，无直调并行路径；ReleaseId 为幂等标识）。
 - `ScanFailed(Error)`：scanner → ui；触发 [PRD §3.7"扫描失败"行](../../PRD.md)（列表保留旧结果，丢弃部分结果）。
 
@@ -79,6 +80,8 @@
 > 2026-09-07（T-01 开工裁决）：① `OwnerUser` 格式口径（#27 裁决，用户选定）：采集侧归一**裸所有者名**（LookupAccountSid 账户名分量，不含域前缀），与编排侧 `CurrentUserName`（`Environment.UserName`，裸名）同格式，T-07 整串 OrdinalIgnoreCase 比较成立；跨域同名用户不可区分 → 漏预标，由释放分类执行期兜底（与 null 兜底同向）。② `CreationTimeUtc` 不可读表达：非空字段维持，不可读（打开被拒/查询失败）→ `DateTime.MinValue`（Kind=Utc）哨兵 + 配对 SignalFailure；哨兵不参与 PID 复用比较（任一方哨兵→不复用判定，失败记录兜底不进✅）。③ 基础字段失败编号段：`SignalId=100` 路径、`101` 创建时间、`102` 私有提交、`103` 所有者（scanner 采集侧专用，非口径表 1–15；`0` 仍为进程级保留值）；进程级打开失败（OpenProcess 被拒/进程已消失）单条记录 SignalId=0、Kind=AccessDenied（被拒）/Unreadable（消失），覆盖路径/创建时间/私有提交/所有者四字段，不逐字段重复记录；私有提交不可读值=0（口径#13 兜底）。④ 扫描中途退出进程保留于快照（时点口径），元数据不可读落 Unreadable。⑤ `CommandLine` WMI 通道 1.5s 超时：超时按通道级失败 → 全量字段级 null、无记录（本节 v1 既有口径）。实现于 T-01。
 
 > 2026-09-08（T-05 开工裁决）：① PDH 内存通道走手写 P/Invoke（pdh.dll 薄通道，`ExcludeFromCodeCoverage`）——`PDH_FMT_COUNTERVALUE` 匿名联合在 CsWin32 `allowMarshaling=false` 下生成访问形态不稳，与 NtQuerySystemInformation 手写例外同类延伸（system-spec §4 例外清单已同步第④项）。② `MemoryOverviewSource` 语义：`NtQuery`/`Pdh`=standby 可得；`Degraded` ⇔ `StandbyBytes=null`（standby 不可得，AC 口径）。③ 通道梯为三级：NtQuery（含 standby）→ PDH（commit/available/standby）→ GlobalMemoryStatusEx 终底（规格双通道皆败的契约空档落点：commit 用页面文件口径近似——`CommitLimitBytes≈页面文件总量`、standby 恒 null、恒标 `Degraded`，ui 按 `Source=Degraded` 呈现降级）。④ 偏移实证：NtQuery 可用内存与 PDH/GMS 同刻对照 ≤10%、commit/standby 双通道互证（真机 2026-09-08）；开发中曾因漏算前缀 3×ULONG I/O 操作计数致错位（按 @32 取址），修正为实证布局 AvailablePages@0x2C/CommittedPages@0x30/CommitLimit@0x34（32/64 位同构，出处 Geoff Chappell SystemPerformanceInformation）。实现于 T-05。
+
+> 2026-09-08（③.s4 grilling 补跑裁决，TL 逐条采纳）：① **提权重启失败项回传**：唯一通道=启动参数（PRD F3"状态不落盘"），内容基线=ui.md §27 既有定义（自动重扫标志+失败项清单[名称+可执行路径]），格式细则归 T-16 开工裁决、解析归 T-14；命令行 32K 上限为已知边界，超限降级为"不携带、仅自动重扫"（T-16 实现时登记）。② **CPU 差分窗口（口径 #7）**：窗口=TakeSnapshot 采集段内首尾两次采样（scanner 保持无状态），差分值写入 SignalSet #7 字段；T-02 开工重申。③ **事件线程亲和性**：见 §1.5。④ **PRD §3.3 手写例外枚举过期**：并入 issue #30 一次 PRD v1.4 小修收口。⑤ **ReleaseReport Before/After 时点**：Before=Execute 进入时（第一树启动前）、After=全部树终态后（含取消收尾），与 StartedAtUtc/FinishedAtUtc 对齐；T-10 开工重申。⑥ **加白即时性（F4）**：加白成功后即时重跑 Classify 并从推荐列表移除该行，F2 白名单排除计数同步；T-15 开工重申。⑦ **releaser 窗口发现**：释放决策用窗口句柄由 releaser 执行时自查（EnumWindows 按 PID 过滤取顶层可见窗口，复用口径 #4 的 DWM cloaked 过滤与 UWP 特例规则；自查失败 → 按有窗口走优雅路径兜底）；口径 #4 信号仅供判定，不供释放决策；T-09 开工重申。⑧ **启动行为**：正常启动不自动扫描（用户点击触发）；仅携带重启参数时自动扫；T-14 开工重申。⑨ **单实例互斥**：命名 Mutex（`Local\MemRelief.SingleInstance`），已启动则激活既有窗口后退出；提权重启链路让位规则——携带重启参数启动时对互斥做有限等待重试（或旧实例先释放互斥再拉起新实例），防提权新实例误判"已启动"静默退出；T-14 组合根实现。⑩ **T-20 测试程序对形态**：独立项目 `tests/MemRelief.TestProcs/`（WinExe），不进 T-19 单文件发布；T-20 开工重申。
 
 ## 3. SLA / 非功能
 

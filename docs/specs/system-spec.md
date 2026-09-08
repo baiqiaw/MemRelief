@@ -50,6 +50,7 @@ graph LR
   ├── src/MemRelief.App/      # WPF（引用 Core，唯一 UI 项目）
   └── tests/MemRelief.Core.Tests/
   ```
+  另有测试专用项目 `tests/MemRelief.TestProcs/`（WinExe，T-20 孤儿测试进程构造器；不进单文件发布，裁决见 data-contracts §2 2026-09-08 grilling 行⑩）。
 - 发布：单文件自包含便携 exe（App 产出）；数据落用户数据目录
 
 ## 5. 模块清单
@@ -67,7 +68,7 @@ graph LR
 ## 6. 全局约束
 
 **法**（违反即 FAIL）：
-- 法-1 项目依赖方向：`Core` 不得引用 `WindowsBase/PresentationFramework/System.Windows.*`，门禁脚本判定（`scripts/check-core-refs.ps1`，入口 `scripts/gate.ps1`）检查 Core **编译产物的程序集引用清单**（防 NuGet 传递引入，非仅 csproj 文本）；`App` 是唯一 UI 项目（溯源：PRD §3.5；本机门禁承载，CI 未建）。
+- 法-1 项目依赖方向：`Core` 不得引用 `WindowsBase/PresentationFramework/System.Windows.*`，门禁脚本判定（`scripts/check-core-refs.ps1`，入口 `scripts/gate.ps1`）检查 Core **编译产物的程序集引用清单**（防 NuGet 传递引入，非仅 csproj 文本）；`App` 是唯一 WPF/UI 框架项目（测试用 WinExe 工具项目除外，见 §4 结构；溯源：PRD §3.5；本机门禁承载，CI 未建）。
 - 法-2 判定信号技术口径以 [PRD §3.1 F1 口径表 #1–#15](../PRD.md) 为唯一事实源；实现不得另立口径（溯源：req-review S0-1）。
 - 法-3 保守兜底总则：任一保护性判定所需数据（信号/名单）采集或加载失败 → 相关进程不得进✅级（溯源：PRD 口径表总则）。
 - 法-4 系统配置零写入：除白名单/日志两个自有数据文件（含轮转副本）外不得写注册表/文件系统；引擎诊断日志仅输出调试跟踪/控制台，**不落盘**（溯源：PRD §3.4）。

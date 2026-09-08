@@ -16,16 +16,16 @@ step_status:
   "③.s1 Spec": done                    # 三层体系（5aebf9f）= 契约冻结点
   "③.s2 WBS": done                     # v1.0，7 交付物×26 工作包（150a545）
   "③.s3 技术 POC": done                # 基线采样落档（071089c，baseline-sample.ps1）
-  "③.s4 grilling 拷问": pending        # TL 裁决补跑（2026-09-08）：拷问对象=技术方案/Spec，独立任务执行
+  "③.s4 grilling 拷问": done           # 2026-09-08 补跑完成：两轮 10 项裁决 TL 逐条采纳，落 data-contracts §1.5/§2 与 issue #30
   "③.s5 排期": done                    # CPM 29.0d/P80 30.4（ef23a44），issue 已生成
-  "④.s1 派发": in_progress             # T-13/T-05 已签字关单（2026-09-08）；新一批：车道B T-02（#6，关键路径 3d）+ 车道A T-20（#22，2d），TL 2026-09-08 确认
+  "④.s1 派发": in_progress             # T-13/T-05 已签字关单（2026-09-08）；新一批：车道B T-02（#6，关键路径 3d）+ 车道A T-20（#10，2d），TL 2026-09-08 确认
 worker_assignment:
   dev_a: WP-T-02                       # 车道B：进程活动信号采集器群（#6，关键路径浮动 0）
-  dev_b: WP-T-20                       # 车道A：孤儿测试进程构造器（#22，浮动 4）
+  dev_b: WP-T-20                       # 车道A：孤儿测试进程构造器（#10，浮动 4）
 gate_status:
   "①立项": passed
   "②需求": passed
-  "③设计": in_progress                 # 差 ③.s4 grilling 补跑
+  "③设计": passed                      # ③.s4 grilling 补跑 2026-09-08 收口（10 项裁决落档）
   "④实现": in_progress                 # 每 WP：TDD 绿+Review+git 干净+覆盖率≥80%；AC 签字关单归 issue
   "⑤验收": pending
   "⑥回流": pending
