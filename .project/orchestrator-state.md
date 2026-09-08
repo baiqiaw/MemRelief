@@ -6,7 +6,7 @@ project: MemRelief
 size_tier: medium                      # WBS 408h ≈ 2.5 人月（1–3 人月档）
 modules_activated: [spec_three_layer, poc, multi_agent_parallel]  # 偏离中档默认矩阵：ui_prototype 跳过（自用无甲方，PRD §1.4）、spec_three_layer 升三层、arch_review 跳过（中档默认即跳）、phased_rollout 跳过（TL 2026-09-08 裁决维持）
 current_phase: "④实现"
-current_step: "④.s2 单测 CASE（T-13 / T-05）"
+current_step: "④.s1 派发"
 step_status:
   "①.s1 范围基线": done                # 回填：无投标环节，范围源 = PRD v1.3；071089c 关闭「本机基线采样」待确认项（M1 前置达成）
   "①.s2 账本+知识底座+缺口视图": done   # 2026-09-07 建；缺口视图=自举场景（无生成器，原料+轴声明就位；入口已在项目 CLAUDE.md 接线，无生成器故无 SessionStart 注入）
@@ -18,11 +18,8 @@ step_status:
   "③.s3 技术 POC": done                # 基线采样落档（071089c，baseline-sample.ps1）
   "③.s4 grilling 拷问": pending        # TL 裁决补跑（2026-09-08）：拷问对象=技术方案/Spec，独立任务执行
   "③.s5 排期": done                    # CPM 29.0d/P80 30.4（ef23a44），issue 已生成
-  "④.s1 派发": done                    # 2026-09-08 TL 确认：T-13（车道B）+ T-05（车道A）双开
-  "④.s2 单测 CASE": in_progress
-worker_assignment:
-  dev_a: WP-T-13                       # 车道B：名单资源装载（#9，关键路径浮动 0）
-  dev_b: WP-T-05                       # 车道A：内存概览采样（#5，浮动 4）
+  "④.s1 派发": in_progress             # T-13/T-05 已交付待签字；下一批候选：车道B T-02（#6，关键路径 3d）+ 车道A T-20（#22，2d），待 TL 确认
+worker_assignment: {}                  # 上一批（T-13/T-05）已交付，待签字关单；新派发后写入
 gate_status:
   "①立项": passed
   "②需求": passed
