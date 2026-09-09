@@ -53,7 +53,7 @@ public static class SignalRules
     }
 
     /// <summary>
-    /// 口径 #8 表行解析（T-02）：MIB_TCPTABLE_OWNER_PID 行序遍历（x64 行 24 字节：State@0/OwningPid@20），
+    /// 口径 #6 表行解析（T-02）：MIB_TCPTABLE_OWNER_PID 行序遍历（x64 行 24 字节：State@0/OwningPid@20），
     /// 仅 ESTABLISHED 且属候选 pid 计数。buffer 布局：dwNumEntries@0，行数组@4。
     /// </summary>
     internal static unsafe void CountEstablishedRows(byte* table, int bufferSize, IReadOnlySet<int> candidatePids, Dictionary<int, int> counts)

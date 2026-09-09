@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- T-20 孤儿测试进程构造器：WinExe 防控制台窗口干扰"无可见窗口"构造规格；
+         不进 T-19 单文件发布（data-contracts §2 grilling 裁决⑩）；真机验收载体（AC：被 R01/R03 复用） -->
+  </PropertyGroup>
+
+</Project>
