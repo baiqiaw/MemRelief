@@ -18,9 +18,9 @@ step_status:
   "③.s3 技术 POC": done                # 基线采样落档（071089c，baseline-sample.ps1）
   "③.s4 grilling 拷问": done           # 2026-09-08 补跑完成：两轮 10 项裁决 TL 逐条采纳，落 data-contracts §1.5/§2 与 issue #30
   "③.s5 排期": done                    # CPM 29.0d/P80 30.4（ef23a44），issue 已生成
-  "④.s1 派发": in_progress             # T-13/T-05 已签字关单（2026-09-08）；新一批：车道B T-02（#6，关键路径 3d）+ 车道A T-20（#10，2d），TL 2026-09-08 确认
+  "④.s1 派发": in_progress             # T-02 已交付并签字关单（#6，2026-09-09，提前 2 天）；T-20（#10）实现中
 worker_assignment:
-  dev_a: WP-T-02                       # 车道B：进程活动信号采集器群（#6，关键路径浮动 0）
+  dev_a: WP-T-02                       # 车道B：进程活动信号采集器群——已签字关单（2026-09-09）
   dev_b: WP-T-20                       # 车道A：孤儿测试进程构造器（#10，浮动 4）
 gate_status:
   "①立项": passed
