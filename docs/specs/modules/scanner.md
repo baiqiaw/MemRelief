@@ -22,7 +22,7 @@
 ## 4. 行为
 
 ### 4.1 关键用例
-- **采集快照**：`Task<ScanResult> TakeSnapshot()` → 异步枚举（进程/PPID/私有提交/创建时间/路径/命令行[WMI 通道]/所有者；命令行 WMI 查询与原生枚举重叠执行，编排层决策——WMI 冷启动较慢，重叠缩短采集关键路径）→ 采集型信号按 [PRD 口径表 #1–#15](../../PRD.md) 中属采集侧的项执行（Run 键 WOW64 双视图、QueryServiceConfig2[CsWin32]、ITaskService[手写例外]等）→ 返回。
+- **采集快照**：`Task<ScanResult> TakeSnapshot()` → 异步枚举（进程/PPID/私有提交/创建时间/路径/命令行[WMI 通道]/所有者；命令行 WMI 查询与原生枚举重叠执行，编排层决策——WMI 冷启动较慢，重叠缩短采集关键路径）→ 采集型信号按 [PRD 口径表 #1–#15](../../PRD.md) 中属采集侧的项执行（Run 键 WOW64 双视图、QueryServiceConfig2[手写例外，system-spec §4④]、ITaskService[手写例外]等）→ 返回。
 - **候选验签（两阶段，法级）**：`Task<ScanResult> CollectSignatures(ScanResult, ISet<int> candidatePids)` → 仅对候选执行 WinVerifyTrust 并回填签名字段（口径表 #9"仅候选执行"；缓存见 §6）。编排方在 `CandidateIds`（rules）之后调用（时序见 §4.3）。
 - **采集概览**：`Task<MemoryOverview> SampleOverview()` → 三级通道梯：NtQuerySystemInformation 优先（含 standby）→ PDH 计数器兜底（commit/available/standby）→ GlobalMemoryStatusEx 终底（commit 用页面文件口径近似，Source=Degraded、standby 恒 null）；降级语义：standby 不可得 ⇔ StandbyBytes=null 且 Source=Degraded（T-05 实装，裁决见 [data-contracts §2](../interfaces/data-contracts.md)）。
 - **CPU 差分**：扫描窗口首尾两次采样求差（口径表 #7），随快照输出。

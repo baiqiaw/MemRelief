@@ -27,6 +27,7 @@ public readonly record struct ProcessField<T>(T? Value, string? Error)
 /// 仅数据承载，无逻辑；判定/映射归 <see cref="SnapshotAssembler"/>（纯函数）。
 /// </summary>
 /// <param name="CommandLine">契约 v1：通道级失败仅字段级 null 表达、无 SignalFailure（data-contracts §1.1）。</param>
+/// <param name="CpuStart">口径 #7 差分起点：打开句柄时 kernel+user CPU 时间合计秒（与创建时间同一 GetProcessTimes 调用，近零成本；T-02）。</param>
 public sealed record RawProcess(
     int Pid,
     int ParentPid,
@@ -36,4 +37,5 @@ public sealed record RawProcess(
     ProcessField<DateTime?> CreationTimeUtc,
     ProcessField<long?> PrivateCommittedBytes,
     ProcessField<string?> OwnerUser,
+    ProcessField<double?> CpuStart,
     string? CommandLine);

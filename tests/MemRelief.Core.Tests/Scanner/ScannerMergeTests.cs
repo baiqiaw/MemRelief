@@ -15,6 +15,7 @@ public class ScannerMergeTests
         ProcessField<DateTime?>.Ok(new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc)),
         ProcessField<long?>.Ok(4096),
         ProcessField<string?>.Ok("alice"),
+        ProcessField<double?>.Ok(0.2),
         cmdline);
 
     [Fact]

@@ -12,15 +12,30 @@ public static class SnapshotAssembler
     /// <summary>创建时间不可读哨兵（裁决②）：值同 MinValue，Kind 强制 Utc（契约：Kind 须为 Utc）。</summary>
     internal static readonly DateTime UnreadableCreation = new(DateTime.MinValue.Ticks, DateTimeKind.Utc);
 
-    public static ScanResult Assemble(IReadOnlyList<RawProcess> rows, DateTime takenAtUtc, long durationMs)
+    public static ScanResult Assemble(IReadOnlyList<RawProcess> rows, DateTime takenAtUtc, long durationMs) =>
+        Assemble(rows, signals: null, takenAtUtc, durationMs);
+
+    /// <summary>T-02 扩展：带活动信号输入的装配（SignalInputs null = 信号未采集，字段保持契约默认/null 语义）。</summary>
+    public static ScanResult Assemble(IReadOnlyList<RawProcess> rows, SignalInputs? signals, DateTime takenAtUtc, long durationMs)
     {
         var snapshots = new List<ProcessSnapshot>(rows.Count);
         var failures = new List<SignalFailure>();
 
+        // 全局通道失败整次扫描一条（扫描级事实，与 per-pid 失败分离；契约 §1.1）
+        if (signals is not null)
+        {
+            AddGlobalSignalFailures(signals, failures);
+        }
+
         foreach (var row in rows)
         {
-            snapshots.Add(ToSnapshot(row));
+            var snapshot = ToSnapshot(row);
             CollectFailures(row, failures);
+            if (signals is not null)
+            {
+                snapshot = snapshot with { Signals = MergeSignals(row, signals, failures) };
+            }
+            snapshots.Add(snapshot);
         }
 
         // Pid 唯一键（契约 §1.1：违约定=扫描失败，异常由编排方转 ScanFailed）
@@ -37,6 +52,93 @@ public static class SnapshotAssembler
             durationMs,
             snapshots.ToArray(),
             failures.ToArray());
+    }
+
+    /// <summary>通道级全局失败登记（Pid=null=全量进程不进✅ 的全有全无语义，契约 §1.1；每口径至多一条）。</summary>
+    private static void AddGlobalSignalFailures(SignalInputs inputs, List<SignalFailure> failures)
+    {
+        if (inputs.WindowEnumerationFailed)
+        {
+            failures.Add(new SignalFailure(4, null, FailureKind.CollectorFailed, "窗口枚举失败（EnumWindows 通道）"));
+        }
+        if (inputs.TcpTableFailed)
+        {
+            failures.Add(new SignalFailure(6, null, FailureKind.CollectorFailed, "TCP 连接表读取失败（GetExtendedTcpTable）"));
+        }
+        if (inputs.ServiceEnumerationFailed)
+        {
+            failures.Add(new SignalFailure(8, null, FailureKind.CollectorFailed, "服务枚举失败（OpenSCManager/EnumServicesStatusEx）"));
+        }
+        if (inputs.DirectoryResolveFailed)
+        {
+            failures.Add(new SignalFailure(10, null, FailureKind.CollectorFailed, "系统目录清单解析失败（%windir%/Known Folder）"));
+        }
+    }
+
+    /// <summary>
+    /// 单行活动信号合并（T-02，五口径 → SignalSet；纯函数，仅 per-pid 语义——全局失败由 Assemble 统一登记）。
+    /// 配对不变量：per-pid 采集失败（CPU/服务恢复配置不可读）登记对应口径 SignalFailure——
+    /// rules 以 Failures 为保守兜底事实源，字段默认值不构成"已核实"（data-contracts §1.1）。
+    /// </summary>
+    public static SignalSet MergeSignals(RawProcess row, SignalInputs inputs, List<SignalFailure> failures)
+    {
+        var path = row.ExecutablePath.IsOk ? row.ExecutablePath.Value : null;
+
+        // 口径 #4 可见窗口：VisiblePids 缺席=false；全局枚举失败由 Assemble 登记
+        bool? hasVisibleWindow = inputs.WindowEnumerationFailed
+            ? null
+            : inputs.VisiblePids.Contains(row.Pid);
+
+        // 口径 #6 活跃 TCP：缺席=0（表失败由 Assemble 登记）
+        var tcp = inputs.TcpEstablished.TryGetValue(row.Pid, out var established) ? established : 0;
+
+        // 口径 #7 CPU 差分：null（窗口内退出/采样失败/缺键）→ per-pid failure（口径兜底"不可读→不进✅"）
+        var cpu = inputs.CpuDeltas.TryGetValue(row.Pid, out var delta) ? delta : null;
+        if (cpu is null)
+        {
+            failures.Add(new SignalFailure(7, row.Pid, FailureKind.Unreadable, "CPU 差分不可得（窗口内退出或采样失败）"));
+        }
+
+        // 口径 #8 服务关联：未命中=非服务；QueryServiceConfig2 读取失败（RestartOnFailure=null，含多服务归并 null 传播）→ per-pid failure
+        string? serviceName = null;
+        bool? restartOnFailure = null;
+        if (inputs.Services.TryGetValue(row.Pid, out var service))
+        {
+            serviceName = service.Name;
+            restartOnFailure = service.RestartOnFailure;
+            if (restartOnFailure is null)
+            {
+                failures.Add(new SignalFailure(8, row.Pid, FailureKind.Unreadable, $"服务失败恢复配置不可读：{service.Name}"));
+            }
+        }
+
+        // 口径 #10 系统目录 + #4 UWP 特例：路径不可读 → null（编号 100 已覆盖，不重复 #10）；解析失败由 Assemble 登记
+        bool? isSystemDirectory;
+        var isUwp = false;
+        if (path is null)
+        {
+            isSystemDirectory = null;
+        }
+        else if (inputs.DirectoryResolveFailed)
+        {
+            isSystemDirectory = null;
+        }
+        else
+        {
+            isSystemDirectory = SignalRules.IsUnderAnyPrefix(path, inputs.SystemDirectoryPrefixes);
+            isUwp = inputs.UwpPackagePrefix is not null && SignalRules.PathMatchesPrefix(path, inputs.UwpPackagePrefix);
+        }
+
+        return new SignalSet
+        {
+            HasVisibleWindow = hasVisibleWindow,
+            IsUwpPackage = isUwp,
+            TcpEstablishedCount = tcp,
+            CpuDeltaSeconds = cpu,
+            ServiceName = serviceName,
+            ServiceRestartOnFailure = restartOnFailure,
+            IsSystemDirectory = isSystemDirectory,
+        };
     }
 
     private static ProcessSnapshot ToSnapshot(RawProcess row)

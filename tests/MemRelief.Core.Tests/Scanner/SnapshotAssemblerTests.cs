@@ -24,6 +24,7 @@ public class SnapshotAssemblerTests
         ProcessField<DateTime?>.Ok(creation ?? BaseTime),
         ProcessField<long?>.Ok(commit),
         ProcessField<string?>.Ok(owner),
+        ProcessField<double?>.Ok(0.3),
         cmdline);
 
     private static RawProcess OpenDeniedRow(int pid, int ppid, string name = "ppl.exe") => new(
@@ -32,6 +33,7 @@ public class SnapshotAssemblerTests
         ProcessField<DateTime?>.Fail("打开被拒"),
         ProcessField<long?>.Fail("打开被拒"),
         ProcessField<string?>.Fail("打开被拒"),
+        CpuStart: ProcessField<double?>.Fail("打开被拒"),
         CommandLine: null);
 
     private static RawProcess VanishedRow(int pid, int ppid, string name = "gone.exe") => new(
@@ -40,6 +42,7 @@ public class SnapshotAssemblerTests
         ProcessField<DateTime?>.Fail("进程已退出"),
         ProcessField<long?>.Fail("进程已退出"),
         ProcessField<string?>.Fail("进程已退出"),
+        CpuStart: ProcessField<double?>.Fail("进程已退出"),
         CommandLine: null);
 
     // ---------- 字段映射 ----------

@@ -140,3 +140,78 @@ public class MemoryOverviewIntegrationTests
         }
     }
 }
+
+// —— T-02 活动信号通道真机冒烟（手写结构偏移/表布局的实证载体；纯判定面在 SignalCollectorTests）——
+
+public class SignalChannelIntegrationTests
+{
+    [Fact]
+    public void 窗口通道_真机枚举成功且存在可见窗口进程()
+    {
+        var ok = WindowProbe.TryCollectVisiblePids(new HashSet<int>(Enumerable.Range(1, 99999)), out var visiblePids);
+
+        Assert.True(ok, "EnumWindows 真机应成功");
+        Assert.NotEmpty(visiblePids);
+    }
+
+    [Fact]
+    public void tcp通道_真机取表成功且计数非负()
+    {
+        var ok = TcpProbe.TryCountEstablishedByPid(new HashSet<int>(Enumerable.Range(1, 99999)), out var counts);
+
+        Assert.True(ok, "GetExtendedTcpTable 真机应成功");
+        Assert.All(counts.Values, c => Assert.True(c > 0));
+    }
+
+    [Fact]
+    public void 服务通道_真机关联成立_svchost进程命中关联服务()
+    {
+        // services.exe 是 SCM 宿主自身，不作为服务进程出现；svchost 分组进程恒有关联服务（真机常态）
+        var svchostPid = new NativeProcessEnumerator().Enumerate().Rows
+            .Where(r => r.Name.Equals("svchost.exe", StringComparison.OrdinalIgnoreCase))
+            .Select(r => r.Pid)
+            .ToHashSet();
+
+        Assert.NotEmpty(svchostPid);
+        var ok = ServiceProbe.TryCollectServices(out var byPid);
+
+        Assert.True(ok, "SCM 枚举真机应成功");
+        Assert.Contains(byPid.Keys, pid => svchostPid.Contains(pid));
+        Assert.All(byPid.Keys.Where(svchostPid.Contains),
+            pid => Assert.True(byPid[pid].Name.Length > 0, "关联服务名不得为空"));
+    }
+
+    [Fact]
+    public void cpu差分_真机自身进程差分非负且小于窗口时长()
+    {
+        var rows = new NativeProcessEnumerator().Enumerate().Rows;
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var deltas = new NativeProcessEnumerator().ReadCpuDeltas(rows);
+        stopwatch.Stop();
+
+        Assert.True(deltas.TryGetValue(Environment.ProcessId, out var self), "自身进程应采样");
+        Assert.NotNull(self);
+        Assert.InRange(self!.Value, 0, stopwatch.Elapsed.TotalSeconds + 5);
+    }
+
+    [Fact]
+    public async Task 端到端_真机快照五信号填充且健康机器无全局采集失败()
+    {
+        var scan = await new ScannerImpl().TakeSnapshot();
+
+        // 真机健康态：五通道不应有全局级失败（CollectorFailed + Pid=null）
+        Assert.DoesNotContain(scan.Failures, f => f.Pid is null && f.Kind == FailureKind.CollectorFailed);
+
+        // 系统目录信号：至少一个进程命中（svchost 路径在 %windir%\System32）
+        Assert.Contains(scan.Snapshots, s => s.Signals.IsSystemDirectory == true);
+
+        // 服务信号：svchost 分组进程（真机常态）应关联到具体服务名
+        var svchost = scan.Snapshots.FirstOrDefault(s => s.Name == "svchost.exe" && s.Signals.ServiceName is not null);
+        Assert.True(svchost is not null, "svchost 应至少一个关联到服务名");
+
+        // 系统目录通道字段可判（解析失败路径之外恒为 bool）；窗口通道已产出判定（bool 语义恒填充）
+        Assert.Contains(scan.Snapshots, s => s.Signals.IsSystemDirectory != null);
+        Assert.Contains(scan.Snapshots, s => s.Signals.HasVisibleWindow != null);
+    }
+}
+

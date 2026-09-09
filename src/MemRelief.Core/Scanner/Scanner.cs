@@ -13,20 +13,42 @@ public sealed class Scanner : IScanner
     private readonly NativeProcessEnumerator _native = new();
     private readonly WmiCommandLineSource _wmi = new();
 
-    /// <summary>采集快照（口径#1/#13 数据侧 + 基础字段 + 失败记录框架）。</summary>
+    /// <summary>采集快照（口径#1/#13 数据侧 + 基础字段 + T-02 活动信号五通道 + 失败记录框架）。</summary>
     public async Task<ScanResult> TakeSnapshot()
     {
         var stopwatch = Stopwatch.StartNew();
         // WMI 与原生枚举重叠（WMI 冷启动 COM 初始化较慢）；通道超时/失败→命令行全量 null（裁决⑤）
         var commandLinesTask = _wmi.QueryCommandLinesAsync();
 
+        // CPU 差分窗口起点随枚举捕获（grilling 裁决②：窗口=TakeSnapshot 采集段）
         var (rows, takenAtUtc) = _native.Enumerate();
+
+        // 活动信号四通道（窗口/TCP/服务/目录解析）+ CPU 差分终点二次采样，均在采集段内完成
+        var signals = CollectSignals(rows);
 
         var commandLines = await commandLinesTask.ConfigureAwait(false);
         var merged = MergeCommandLines(rows, commandLines);
 
         stopwatch.Stop();
-        return SnapshotAssembler.Assemble(merged, takenAtUtc, stopwatch.ElapsedMilliseconds);
+        return SnapshotAssembler.Assemble(merged, signals, takenAtUtc, stopwatch.ElapsedMilliseconds);
+    }
+
+    /// <summary>活动信号采集编排（T-02）：四通道互不相依顺序执行 + CPU 终点二次采样；单通道失败以全局 failure 降级不击穿。</summary>
+    private SignalInputs CollectSignals(IReadOnlyList<RawProcess> rows)
+    {
+        var pids = new HashSet<int>(rows.Select(r => r.Pid));
+        var windowOk = WindowProbe.TryCollectVisiblePids(pids, out var visible);
+        var tcpOk = TcpProbe.TryCountEstablishedByPid(pids, out var tcp);
+        var serviceOk = ServiceProbe.TryCollectServices(out var services);
+        var (prefixes, uwpPrefix, directoryFailed) = SystemDirectoryResolver.Resolve();
+        var cpuDeltas = _native.ReadCpuDeltas(rows);
+
+        return new SignalInputs(
+            visible, !windowOk,
+            tcp, !tcpOk,
+            services, !serviceOk,
+            prefixes, uwpPrefix, directoryFailed,
+            cpuDeltas);
     }
 
     /// <summary>候选验签（两阶段协议采集侧，口径#9 仅候选执行 + 路径+mtime 缓存）。</summary>

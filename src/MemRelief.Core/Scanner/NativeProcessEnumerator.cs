@@ -103,6 +103,58 @@ public sealed class NativeProcessEnumerator
         }
     }
 
+    /// <summary>
+    /// 口径 #7 差分终点二次采样（T-02，grilling 裁决②：窗口=TakeSnapshot 采集段）：对已采集起点的存活进程重开句柄取
+    /// kernel+user 合计，差分秒输出；窗口内退出（打开失败）→ null（合并层配 SignalFailure #7）。幂等只读、无副作用。
+    /// </summary>
+    public Dictionary<int, double?> ReadCpuDeltas(IReadOnlyList<RawProcess> rows)
+    {
+        var deltas = new Dictionary<int, double?>(rows.Count);
+        foreach (var row in rows)
+        {
+            if (row.Open != ProcessOpenOutcome.Opened || !row.CpuStart.IsOk || row.CpuStart.Value is not { } start)
+            {
+                deltas[row.Pid] = null;   // 起点不可得（打开受拒等，T-01 已有失败记录）
+                continue;
+            }
+
+            var handle = PInvoke.OpenProcess(PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)row.Pid);
+            if (handle == default)
+            {
+                deltas[row.Pid] = null;   // 窗口内退出/受拒 → 差分不可得（装配层配 SignalFailure #7）
+                continue;
+            }
+
+            try
+            {
+                var end = TryGetTotalCpu(handle);
+                // pid 复用防御（T-02 cross-review F3）：终点 < 起点=句柄指向复用新进程，差分无意义 → null（配 SignalFailure #7，与"不可得"同向）
+                deltas[row.Pid] = end is { } total && total >= start ? total - start : null;
+            }
+            finally
+            {
+                PInvoke.CloseHandle(handle);
+            }
+        }
+        return deltas;
+    }
+
+    /// <summary>kernel+user 合计秒；读取失败 → null。</summary>
+    private static unsafe double? TryGetTotalCpu(HANDLE handle)
+    {
+        var creation = default(System.Runtime.InteropServices.ComTypes.FILETIME);
+        var exit = default(System.Runtime.InteropServices.ComTypes.FILETIME);
+        var kernel = default(System.Runtime.InteropServices.ComTypes.FILETIME);
+        var user = default(System.Runtime.InteropServices.ComTypes.FILETIME);
+        if (!PInvoke.GetProcessTimes(handle, &creation, &exit, &kernel, &user))
+        {
+            return null;
+        }
+        var kernelTicks = ((ulong)kernel.dwHighDateTime << 32) | (uint)kernel.dwLowDateTime;
+        var userTicks = ((ulong)user.dwHighDateTime << 32) | (uint)user.dwLowDateTime;
+        return (kernelTicks + userTicks) / 10_000_000.0;
+    }
+
     private static RawProcess ReadProcessFields(int pid, int ppid, string name)
     {
         var handle = PInvoke.OpenProcess(PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)pid);
@@ -116,15 +168,17 @@ public sealed class NativeProcessEnumerator
 
         try
         {
+            var (creation, cpuStart) = TryGetCreationAndCpu(handle);
             return new RawProcess(
                 pid,
                 ppid,
                 name,
                 ProcessOpenOutcome.Opened,
                 TryGetPath(handle),
-                TryGetCreationTime(handle),
+                creation,
                 TryGetPrivateCommit(handle),
                 TryGetOwnerUser(handle),
+                CpuStart: cpuStart,
                 CommandLine: null);
         }
         finally
@@ -143,6 +197,7 @@ public sealed class NativeProcessEnumerator
             ProcessField<DateTime?>.Fail(reason),
             ProcessField<long?>.Fail(reason),
             ProcessField<string?>.Fail(reason),
+            CpuStart: ProcessField<double?>.Fail(reason),
             CommandLine: null);
     }
 
@@ -181,7 +236,8 @@ public sealed class NativeProcessEnumerator
         }
     }
 
-    private static unsafe ProcessField<DateTime?> TryGetCreationTime(HANDLE handle)
+    /// <summary>创建时间 + CPU 差分起点（口径 #7）：同一 GetProcessTimes 调用取四时间，kernel+user 合成为秒。</summary>
+    private static unsafe (ProcessField<DateTime?> Creation, ProcessField<double?> CpuStart) TryGetCreationAndCpu(HANDLE handle)
     {
         try
         {
@@ -191,21 +247,29 @@ public sealed class NativeProcessEnumerator
             var user = default(System.Runtime.InteropServices.ComTypes.FILETIME);
             if (!PInvoke.GetProcessTimes(handle, &creation, &exit, &kernel, &user))
             {
-                return ProcessField<DateTime?>.Fail($"Win32 错误 {Marshal.GetLastWin32Error()}");
+                var reason = $"Win32 错误 {Marshal.GetLastWin32Error()}";
+                return (ProcessField<DateTime?>.Fail(reason), ProcessField<double?>.Fail(reason));
             }
             // 高低位在 ulong 域合成（FILETIME 字段为 int，long|uint 组合会符号扩展低 DWORD 产生假负值，CS0675）
             var fileTime = (long)(((ulong)creation.dwHighDateTime << 32) | (uint)creation.dwLowDateTime);
             // 负值=1601 前不存在的时间（个别进程可报），按不可读处理，哨兵+失败记录由装配层兜住
             if (fileTime < 0)
             {
-                return ProcessField<DateTime?>.Fail($"创建时间值非法（fileTime={fileTime}）");
+                return (
+                    ProcessField<DateTime?>.Fail($"创建时间值非法（fileTime={fileTime}）"),
+                    ProcessField<double?>.Fail("CPU 起点随创建时间同调用采集失败"));
             }
-            return ProcessField<DateTime?>.Ok(DateTime.FromFileTimeUtc(fileTime));
+            // CPU 起点（口径 #7，T-02）：kernel/user 为 100ns FILETIME 域，合计换算秒（ulong 域合成防符号扩展）
+            var kernelTicks = ((ulong)kernel.dwHighDateTime << 32) | (uint)kernel.dwLowDateTime;
+            var userTicks = ((ulong)user.dwHighDateTime << 32) | (uint)user.dwLowDateTime;
+            var cpuStart = (kernelTicks + userTicks) / 10_000_000.0;
+            return (ProcessField<DateTime?>.Ok(DateTime.FromFileTimeUtc(fileTime)), ProcessField<double?>.Ok(cpuStart));
         }
         catch (Exception ex)
         {
             // 字段级意外异常降级为该字段失败，不击穿整次扫描（历史 0xC0000005 同层教训）
-            return ProcessField<DateTime?>.Fail($"意外异常 {ex.GetType().Name}: {ex.Message}");
+            var reason = $"意外异常 {ex.GetType().Name}: {ex.Message}";
+            return (ProcessField<DateTime?>.Fail(reason), ProcessField<double?>.Fail(reason));
         }
     }
 

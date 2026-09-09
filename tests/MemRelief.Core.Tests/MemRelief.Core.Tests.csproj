@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- 构造缓冲单测（T-02 手写结构解析）需要指针 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
     <!-- 覆盖率采集常驻（仅统计 MemRelief.Core）：任何 dotnet test 均出覆盖率报告；
          阈值强制（≥80%，全量 total 口径，见 spec §7）由 scripts/gate.ps1 以 /p: 注入，
