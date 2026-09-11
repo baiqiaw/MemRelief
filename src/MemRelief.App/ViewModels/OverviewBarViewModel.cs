@@ -45,6 +45,9 @@ public sealed class OverviewBarViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>启动时点刷新（PRD F5 三时点之一）；幂等只读，可重复调用。</summary>
     public Task InitializeAsync() => RefreshAsync();
 
+    /// <summary>所订阅的状态机（组合根同源约束的可观测面，收口断言用）。</summary>
+    public UiStateMachine StateMachine => _stateMachine;
+
     /// <summary>
     /// 采样并投影三数值与文案。采样异常收口为读失败态（不向调用方抛出）；
     /// 代际守卫拒绝陈旧结果回写；Dispose 后为空操作（订阅已释放）。

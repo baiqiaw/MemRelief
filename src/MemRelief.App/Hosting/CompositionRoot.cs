@@ -15,10 +15,10 @@ namespace MemRelief.App.Hosting;
 public static class CompositionRoot
 {
     /// <summary>构造扫描/判定链服务对象图（不含窗口，供非 STA 上下文测试）。</summary>
-    public static MainViewModel CreateViewModel()
+    public static MainViewModel CreateViewModel(IScanner? scanner = null)
     {
-        // scanner 模块：快照/验签/概览（T-01/T-02/T-04/T-05，接口已冻结）
-        IScanner scanner = new Scanner();
+        // scanner 模块：快照/验签/概览（T-01/T-02/T-04/T-05，接口已冻结）；可注入以供主窗口与概览条共享同实例
+        IScanner scannerInstance = scanner ?? new Scanner();
 
         // rules 模块：三级判定（T-06/T-07，纯函数）
         IRulesEngine rules = new RulesEngine();
@@ -34,10 +34,15 @@ public static class CompositionRoot
 
         // 白名单以提供者注入：每次判定取当前一致视图（加白即时重判生效，③.s4 裁决⑥）
         var coordinator = new ScanCoordinator(
-            scanner, rules, rulePackStore, context, () => whitelistStore.Snapshot());
-        return new MainViewModel(new UiStateMachine(), coordinator, scanner, rules, whitelistStore);
+            scannerInstance, rules, rulePackStore, context, () => whitelistStore.Snapshot());
+        return new MainViewModel(new UiStateMachine(), coordinator, scannerInstance, rules, whitelistStore);
     }
 
-    /// <summary>构造主窗口（含 ViewModel 接线；STA 上下文调用）。</summary>
-    public static MainWindow CreateMainWindow() => new(CreateViewModel());
+    /// <summary>构造主窗口（含 ViewModel 接线；STA 上下文调用）。概览条子 VM 与主 VM 共享 Scanner 与状态机实例（#38 收口）。</summary>
+    public static MainWindow CreateMainWindow()
+    {
+        var scanner = new Scanner();
+        var main = CreateViewModel(scanner);
+        return new MainWindow(main, new OverviewBarViewModel(scanner, main.StateMachine));
+    }
 }

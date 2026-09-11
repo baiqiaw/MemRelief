@@ -1,3 +1,5 @@
+using System.Threading;
+using MemRelief.App;
 using MemRelief.App.Hosting;
 using MemRelief.App.State;
 using MemRelief.App.ViewModels;
@@ -54,5 +56,32 @@ public class CompositionRootTests
         var scannerType = typeof(Scanner);
         Assert.True(typeof(IScanner).IsAssignableFrom(scannerType));
         Assert.True(scannerType.IsSealed); // Core sealed 实现，组合根直接实例化
+    }
+
+    [Fact]
+    public void 组合根_主窗口接线概览条_子VM与主VM状态机同源()
+    {
+        // T-17 收口（#38）：概览条经组合根注入 CreateMainWindow；状态机须与主 VM 同实例，
+        // 错配则扫描后/释放后刷新静默失效（#38 步骤 3 可选加固在此钉死）
+        Exception? failure = null;
+        var sta = new Thread(() =>
+        {
+            try
+            {
+                var window = CompositionRoot.CreateMainWindow();
+                var host = (System.Windows.Controls.ContentControl)window.FindName("OverviewBarHost");
+                var bar = Assert.IsType<OverviewBarViewModel>(host.DataContext);
+                var main = Assert.IsType<MainViewModel>(window.DataContext);
+                Assert.Same(main.StateMachine, bar.StateMachine);
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+        });
+        sta.SetApartmentState(ApartmentState.STA);
+        sta.Start();
+        sta.Join();
+        Assert.Null(failure);
     }
 }
