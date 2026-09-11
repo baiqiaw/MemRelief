@@ -18,8 +18,8 @@ step_status:
   "③.s3 技术 POC": done                # 基线采样落档（071089c，baseline-sample.ps1）
   "③.s4 grilling 拷问": done           # 2026-09-08 补跑完成：两轮 10 项裁决 TL 逐条采纳，落 data-contracts §1.5/§2 与 issue #30
   "③.s5 排期": done                    # CPM 29.0d/P80 30.4（ef23a44），issue 已生成
-  "④.s1 派发": in_progress             # 关单累计 15 issue（13 工作包 + 裁决 #33 + 债消解 #28 待用户确认）；T-12/T-15 双车道交付已合入 main（65a6e88 / ee7a22c，gate 合并态全绿 Core 399 @97.46% + App 117 @96.36%），AC 证据已回写，待 AC 签字关单
-worker_assignment: {}                  # 下一批派发后写入；候选：T-10（#18，取消与结果报告，T-09/T-05 已关单）+ T-17（#20，概览条 UI，T-14/T-05 已关单；约束：概览条独立新文件禁改 MainViewModel 防与 T-10 写冲突）；T-16（#19）被 T-10 阻塞排后，待 TL 确认
+  "④.s1 派发": in_progress             # 关单累计 17 issue；T-10/T-17 双车道交付已合入 main（8f12321 / fbe4a00 + 收口接线 f0a75d8，gate 合并态全绿 Core 419 @97.54% + App 142），AC 证据已回写，待 AC 签字关单；边界 #39，#38 步骤 1/3 已收口（步骤 2 随 T-16）
+worker_assignment: {}                  # 下一批派发后写入；候选：T-16（#19，释放交互闭环，前置 T-15/T-08/T-10/T-12 全关单，关键路径收尾单）+ T-19（#21，配置单文件发布，publish 配置域与 T-16 零冲突）；T-26（#22）与 T-16 同 App 域排后，待 TL 确认
 gate_status:
   "①立项": passed
   "②需求": passed
