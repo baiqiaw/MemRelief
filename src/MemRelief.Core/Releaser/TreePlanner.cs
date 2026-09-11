@@ -74,7 +74,6 @@ public sealed class TreePlanner
 
             plans.Add(new TreePlan(
                 rootPid,
-                rootPid,
                 nodes,
                 skipped,
                 nodes.Sum(n => n.Snapshot.PrivateCommittedBytes)));
@@ -110,17 +109,17 @@ public sealed class TreePlanner
         if (whitelist.ContainsName(node.Name))
         {
             reason = TreeSkipReason.Whitelisted;
-            detail = $"白名单命中：{node.Name}";
+            detail = $"{WhitelistCause}：{node.Name}";
         }
         else if (rulePack.ContainsProtectedProcess(node.Name))
         {
             reason = TreeSkipReason.ProtectedList;
-            detail = $"保护名单命中：{node.Name}";
+            detail = $"{ProtectedCause}：{node.Name}";
         }
         else if (skippedAncestor != null)
         {
             reason = TreeSkipReason.SubtreeOfSkipped;
-            detail = $"子树跳过：祖先 Pid {skippedAncestor.Value.Pid}（{skippedAncestor.Value.Name}）{skippedAncestor.Value.Cause}";
+            detail = $"子树跳过：祖先 Pid {skippedAncestor.Value.Pid}（{skippedAncestor.Value.Name}）{CauseText(skippedAncestor.Value.RootReason)}";
         }
 
         if (reason != null)
@@ -155,14 +154,17 @@ public sealed class TreePlanner
         List<SkippedNode> skipped,
         HashSet<int> visited)
     {
-        skipped.Add(new SkippedNode(node, reason, detail));
+        // 根因名单类：自身命中取自身原因（与自身 Detail 配对），连带取最外层根因祖先的名单类
+        // （与连带 Detail 引用一致，T-08 裁决④；恒不为 SubtreeOfSkipped——
+        // 释放报告 SkippedProtected/SkippedWhitelisted 映射依据，data-contracts §2 T-09 裁决）
+        var rootCause = reason == TreeSkipReason.SubtreeOfSkipped
+            ? skippedAncestor is { } ancestor ? ancestor.RootReason : TreeSkipReason.ProtectedList
+            : reason;
+        skipped.Add(new SkippedNode(node, reason, detail, rootCause));
         // 根因引用贯穿整棵被跳过子树：连带节点一律引用最初的名单命中祖先。
         // 此分支构造根因时 reason 必为自身名单命中（有上级根因则沿用，不重构造）
         var selfAncestor = skippedAncestor
-            ?? new SkippedAncestor(
-                node.Pid,
-                node.Name,
-                reason == TreeSkipReason.Whitelisted ? "白名单命中" : "保护名单命中");
+            ?? new SkippedAncestor(node.Pid, node.Name, reason);
         foreach (var kid in ChildrenOf(node, children))
         {
             Build(kid, children, whitelist, rulePack, selfAncestor, skipped, visited);
@@ -183,6 +185,16 @@ public sealed class TreePlanner
         }
     }
 
-    /// <summary>被跳过子树的根因祖先（名单命中节点），连带 Detail 引用它。</summary>
-    private readonly record struct SkippedAncestor(int Pid, string Name, string Cause);
+    /// <summary>
+    /// 被跳过子树的根因祖先（名单命中节点），连带 Detail 引用它。
+    /// RootReason 以枚举承载名单类语义（RootCause 推导依据），显示文案经 <see cref="CauseText"/> 单点映射——
+    /// 语义与文案分离，防文案改动静默错归报告分类（cross-review 收口）。
+    /// </summary>
+    private readonly record struct SkippedAncestor(int Pid, string Name, TreeSkipReason RootReason);
+
+    private const string WhitelistCause = "白名单命中";
+    private const string ProtectedCause = "保护名单命中";
+
+    private static string CauseText(TreeSkipReason rootReason) =>
+        rootReason == TreeSkipReason.Whitelisted ? WhitelistCause : ProtectedCause;
 }

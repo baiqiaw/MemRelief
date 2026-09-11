@@ -17,7 +17,7 @@
 
 ## 3. 数据模型
 
-见 [data-contracts.md](../interfaces/data-contracts.md)：`ReleaseRequest`、`TreePlan`（含 `Id` 与 `TreePrivateBytes`——确认弹窗"N 树/X MB"的数据源）、`ReleaseItemResult`（Outcome 8 值枚举）、`ReleaseReport`（含 ReleaseId/RequestedAtUtc/LogPersisted）。
+见 [data-contracts.md](../interfaces/data-contracts.md)：`ReleaseRequest`、`TreePlan`（含 `RootPid` 与 `TreePrivateBytes`——确认弹窗"N 树/X MB"的数据源）、`ReleaseItemResult`（Outcome 8 值枚举）、`ReleaseReport`（含 ReleaseId/RequestedAtUtc/LogPersisted）。
 
 ## 4. 行为
 
@@ -48,7 +48,7 @@ sequenceDiagram
 
 ## 5. 接口依赖
 
-- 提供：`IReleaser`（`Plan`、`Execute`、`Cancel`）、事件 `TreeProgress`（→ui）、`ReleaseCompleted`（→ui；日志追加由 App 编排调 storage，非本模块直调）。
+- 提供：`IReleaser`（`Plan`、`Execute`、`Cancel`[随 T-10 接入，T-09 先交 Plan/Execute 与事件]、事件 `TreeProgress`（→ui）、`ReleaseCompleted`（→ui；日志追加由 App 编排调 storage，非本模块直调）。
 - 消费：scanner 的 `ScanResult` 与 `SampleOverview`；storage 的保护/白名单名单（经参数注入）。
 
 ## 6. 约束（模块级）

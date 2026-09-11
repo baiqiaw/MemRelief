@@ -19,3 +19,6 @@ GetShortPathName
 WinVerifyTrust
 WINTRUST_DATA
 WINTRUST_FILE_INFO
+TerminateProcess
+PostMessage
+WaitForSingleObject

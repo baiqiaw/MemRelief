@@ -45,7 +45,6 @@ public class TreePlannerTests
             Snap.Clean(3, ppid: 1));
         var plan = Plan(scan, new[] { 1 }).Single();
 
-        Assert.Equal(1, plan.Id);
         Assert.Equal(1, plan.RootPid);
         Assert.Equal(new[] { 1, 2, 4, 3 }, NodePids(plan.Nodes)); // 先序
         Assert.Equal(new[] { 2, 3 }, NodePids(plan.Nodes[0].Children));
@@ -133,12 +132,17 @@ public class TreePlannerTests
         var byPid = plan.SkippedNodes.ToDictionary(n => n.Snapshot.Pid);
         Assert.Equal(TreeSkipReason.ProtectedList, byPid[2].Reason);
         Assert.Contains("保护名单命中：svchost.exe", byPid[2].Detail);
+        Assert.Equal(TreeSkipReason.ProtectedList, byPid[2].RootCause);
         Assert.Equal(TreeSkipReason.SubtreeOfSkipped, byPid[3].Reason);
         Assert.Contains("Pid 2", byPid[3].Detail); // 连带原因可追溯至保护命中祖先
+        Assert.Equal(TreeSkipReason.ProtectedList, byPid[3].RootCause); // 连带根因=祖先名单类（报告 SkippedProtected 映射依据）
         Assert.Equal(TreeSkipReason.SubtreeOfSkipped, byPid[4].Reason);
+        Assert.Equal(TreeSkipReason.ProtectedList, byPid[4].RootCause);
         Assert.Equal(TreeSkipReason.Whitelisted, byPid[5].Reason);
         Assert.Contains("白名单命中：wapp.exe", byPid[5].Detail);
+        Assert.Equal(TreeSkipReason.Whitelisted, byPid[5].RootCause);
         Assert.Equal(TreeSkipReason.SubtreeOfSkipped, byPid[6].Reason);
+        Assert.Equal(TreeSkipReason.Whitelisted, byPid[6].RootCause); // 白名单子树连带根因=白名单
     }
 
     [Fact]
@@ -185,7 +189,9 @@ public class TreePlannerTests
         var byPid = plan.SkippedNodes.ToDictionary(n => n.Snapshot.Pid);
         Assert.Equal(TreeSkipReason.ProtectedList, byPid[1].Reason);
         Assert.Equal(TreeSkipReason.Whitelisted, byPid[2].Reason);
+        Assert.Equal(TreeSkipReason.Whitelisted, byPid[2].RootCause); // 自身命中：根因名单类与自身 Detail 配对
         Assert.Equal(TreeSkipReason.SubtreeOfSkipped, byPid[3].Reason);
+        Assert.Equal(TreeSkipReason.ProtectedList, byPid[3].RootCause); // 连带：根因与 Detail 引用一致（最外层祖先=保护名单）
         Assert.Contains("Pid 1", byPid[3].Detail); // 连带引用根因祖先
     }
 

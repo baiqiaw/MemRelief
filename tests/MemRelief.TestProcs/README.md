@@ -5,12 +5,13 @@
 ## 用法
 
 ```
-MemRelief.TestProcs parent [--mem-mb N] [--cpu] [--established] [--out-pid <file>]
-MemRelief.TestProcs child  [--mem-mb N] [--cpu] [--established]
+MemRelief.TestProcs parent [--mem-mb N] [--cpu] [--established] [--window] [--ignore-close] [--out-pid <file>]
+MemRelief.TestProcs child  [--mem-mb N] [--cpu] [--established] [--window] [--ignore-close]
 ```
 
-- **parent**：启动 child → 等 child 就绪（命名事件，10s 超时）→ 本进程退出 → child 成为孤儿（父 PID 指向已退出进程）。`--out-pid` 文件首行=child pid。
+- **parent**：启动 child → 等 child 就绪（命名事件，10s 超时）→ 本进程退出 → child 成为孤儿（父 PID 指向已退出进程）。`--out-pid` 文件首行=child pid。`--window`/`--ignore-close` 转发给 child。
 - **child**：挂起等待被外部终止。由**活父**（脚本/测试进程）直接启动即为"同目录存活进程"形态；pid 捕获示例（PowerShell）：`(Start-Process <exe> -ArgumentList 'child','--mem-mb','10' -PassThru).Id`。
+- **--window**（T-09 增补）：child 创建顶层可见窗口并进入消息循环（默认 WM_CLOSE → 关闭退出）；`--ignore-close` 吞并 WM_CLOSE（模拟无响应应用，3s 超时转强杀）。R03 释放链路优雅/强杀两路径的真机载体。
 
 ## 场景矩阵（与降级信号映射；「终局判定」= rules 消费全部信号后的分级）
 
