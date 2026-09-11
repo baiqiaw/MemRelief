@@ -4,6 +4,7 @@ using MemRelief.App.Scanning;
 using MemRelief.App.State;
 using MemRelief.App.Text;
 using MemRelief.Core.Contracts;
+using MemRelief.Core.Releaser;
 using MemRelief.Core.Rules;
 using MemRelief.Core.Scanner;
 using MemRelief.Core.Storage;
@@ -14,10 +15,12 @@ namespace MemRelief.App.ViewModels;
 /// 主窗口 ViewModel（ui 模块编排面）：持有五态状态机宿主，收口扫描链编排结果到绑定面。
 /// 线程模型：StartScanAsync 由 UI 线程发起，await 延续回捕获的 UI 上下文后更新绑定属性
 /// （await 上下文恢复即编组，ui.md §6 法条；本包不订阅 Core 后台线程事件，
-/// releaser 事件接线归 T-16，届时经 Dispatcher 编组）。
+/// releaser 事件接线归 T-16，届时经 Dispatcher 编组后调 <see cref="CompleteRelease"/>）。
 /// 绑定面刷新策略：整组属性统一 RaiseAll（列表快照整体替换，无逐项高频更新）。
 /// 三级列表（T-15）：分组投影 <see cref="Groups"/>、搜索框全量查询（IRulesEngine.Query）、
 /// 右键加白即时重判（③.s4 裁决⑥）、白名单排除计数。
+/// 释放编排（T-10 本包切片）：取消命令（<see cref="CancelReleaseCommand"/>）与
+/// 结果报告收口（<see cref="CompleteRelease"/>）；Execute 触发/进度呈现/日志追加归 T-16。
 /// </summary>
 public sealed class MainViewModel : INotifyPropertyChanged
 {
@@ -25,6 +28,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IScanner _overviewSampler;
     private readonly IRulesEngine _rules;
     private readonly IWhitelistStore _whitelistStore;
+    private readonly IReleaser? _releaser;
 
     private IReadOnlyList<Classification> _classifications = [];
     private ScanResult? _snapshot;
@@ -39,19 +43,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _searchStatusText = string.Empty;
     private int _searchSeq;
     private string? _whitelistNotice;
+    private ReleaseReport? _lastReleaseReport;
 
+    /// <summary>
+    /// releaser 可空注入（T-10 取消编排）：生产组合根随 T-16 释放接线时传入；
+    /// 未注入时取消命令不可用（Releasing 态无接线不可达，双保险，无静默降级路径）。
+    /// </summary>
     public MainViewModel(
         UiStateMachine stateMachine,
         ScanCoordinator coordinator,
         IScanner overviewSampler,
         IRulesEngine rules,
-        IWhitelistStore whitelistStore)
+        IWhitelistStore whitelistStore,
+        IReleaser? releaser = null)
     {
         StateMachine = stateMachine;
         _coordinator = coordinator;
         _overviewSampler = overviewSampler;
         _rules = rules;
         _whitelistStore = whitelistStore;
+        _releaser = releaser;
         StateMachine.StateChanged += (_, _) => OnStateChanged();
         StartScanCommand = new RelayCommand(
             () => _ = StartScanAsync(),
@@ -62,6 +73,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         WhitelistCommand = new RelayCommand<object>(
             o => _ = WhitelistAsync(o as ClassificationRow),
             o => o is ClassificationRow { CanWhitelist: true } && StateMachine.Availability.ListInputEnabled);
+        CancelReleaseCommand = new RelayCommand(
+            () => _releaser?.Cancel(),
+            () => _releaser is not null && StateMachine.Availability.CancelReleaseEnabled);
         // 启动装载即感知白名单损坏自愈（IWhitelistStore.Recovery 唯一通道，storage.md §4.1）；
         // 提示携带 Recovery.Reason：备份失败变体（原文件原地保留）与已重置变体的事实不同，禁固定文案掩盖差异
         if (whitelistStore.Recovery is not null)
@@ -158,6 +172,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>白名单提示可见性（XAML 布尔转换绑定用）。</summary>
     public bool HasWhitelistNotice => _whitelistNotice != null;
 
+    /// <summary>最近一次释放结果报告（T-10 结果报告收口；呈现面板归 T-16 绑定此值）。</summary>
+    public ReleaseReport? LastReleaseReport
+    {
+        get => _lastReleaseReport;
+        private set => SetField(ref _lastReleaseReport, value);
+    }
+
     /// <summary>搜索框输入（进程名或 PID）。</summary>
     public string SearchText
     {
@@ -187,6 +208,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     /// <summary>右键加白命令（参数=行；仅 ✅/⚠️ 级已展示态可用，PRD F4）。</summary>
     public ICommand WhitelistCommand { get; }
+
+    /// <summary>
+    /// 取消命令（T-10，PRD F3-5）：转调 IReleaser.Cancel（跳过未开始树+等待进行中收尾）。
+    /// 仅释放中态且 releaser 已注入时可用（矩阵 CancelReleaseEnabled 双保险）。
+    /// </summary>
+    public ICommand CancelReleaseCommand { get; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -323,6 +350,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// 释放结果收口（T-10 结果报告编排面）：存报告 + 状态机释放完成转换（释放中 → 结果展示，
+    /// PRD §3.6 出口条件"全部树完成/取消"同入口收口）。调用方=T-16 的 ReleaseCompleted 事件接线
+    /// （工作线程事件须经 Dispatcher 编组后抵达，ui.md §6 法条；本方法自身不做编组）。
+    /// 状态机拒绝（非释放中态调用）= 转换无操作，报告仍留存供查看；
+    /// 报告呈现（双释放量/跳过说明/日志结果）归 T-16，绑定 <see cref="LastReleaseReport"/>。
+    /// 释放后概览刷新（F5 第三时点）由 T-17 在本收口点接线。
+    /// </summary>
+    public void CompleteRelease(ReleaseReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        LastReleaseReport = report;
+        StateMachine.TryTransition(AppTrigger.ReleaseCompleted);
+    }
+
     private async Task StartScanCoreAsync()
     {
         if (!StateMachine.TryTransition(AppTrigger.StartScan))
@@ -439,6 +481,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(StartScanCommand));
         OnPropertyChanged(nameof(SearchCommand));
         OnPropertyChanged(nameof(WhitelistCommand));
+        OnPropertyChanged(nameof(CancelReleaseCommand));
         OnPropertyChanged(nameof(Availability));
         OnPropertyChanged(nameof(IsScanning));
         OnPropertyChanged(nameof(Classifications));
@@ -448,6 +491,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(ScanFailedMessage));
         OnPropertyChanged(nameof(WhitelistNotice));
+        OnPropertyChanged(nameof(LastReleaseReport));
     }
 
     private bool SetField<T>(ref T field, T value, [System.Runtime.CompilerServices.CallerMemberName] string? name = null)

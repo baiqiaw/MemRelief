@@ -21,8 +21,6 @@ namespace MemRelief.Core.Releaser;
 [ExcludeFromCodeCoverage]
 internal sealed class Win32ProcessChannel : ILiveProcessOpener
 {
-    private const int ErrorAccessDenied = 5;
-
     public ILiveProcess? TryOpen(int pid, out LiveOpenKind kind, out int win32Error)
     {
         var handle = PInvoke.OpenProcess(
@@ -34,7 +32,7 @@ internal sealed class Win32ProcessChannel : ILiveProcessOpener
         if (handle == default)
         {
             win32Error = Marshal.GetLastWin32Error();
-            kind = win32Error == ErrorAccessDenied ? LiveOpenKind.Denied : LiveOpenKind.Vanished;
+            kind = win32Error == Win32Errors.ErrorAccessDenied ? LiveOpenKind.Denied : LiveOpenKind.Vanished;
             return null;
         }
 
@@ -118,6 +116,75 @@ internal sealed class Win32LiveProcess : ILiveProcess
             }
         }
         return Marshal.GetLastWin32Error();
+    }
+
+    public unsafe string? TryGetTokenUserName()
+    {
+        // 执行期令牌所有者（T-10 权限二分的"令牌"源）：与 scanner 采集侧同款两段式读取
+        //（OpenProcessToken(TOKEN_QUERY) → GetTokenInformation(TokenUser) → LookupAccountSid 裸名，
+        // T-01 裁决①格式口径）。任一步失败 → null（上层回退快照 OwnerUser），不抛出不重试。
+        try
+        {
+            HANDLE token = default;
+            if (!PInvoke.OpenProcessToken(_handle, TOKEN_ACCESS_MASK.TOKEN_QUERY, &token))
+            {
+                return null;
+            }
+
+            try
+            {
+                // 两段式：首调探测长度——预期返回 false（ERROR_INSUFFICIENT_BUFFER=122）并回填 returnLength
+                uint returnLength = 0;
+                _ = PInvoke.GetTokenInformation(token, TOKEN_INFORMATION_CLASS.TokenUser, null, 0, &returnLength);
+                if (returnLength == 0 || returnLength > 4096)
+                {
+                    return null;
+                }
+
+                Span<byte> buffer = stackalloc byte[(int)returnLength];
+                fixed (byte* bufferPtr = buffer)
+                {
+                    if (!PInvoke.GetTokenInformation(
+                            token, TOKEN_INFORMATION_CLASS.TokenUser, bufferPtr, returnLength, &returnLength))
+                    {
+                        return null;
+                    }
+
+                    var tokenUser = (TOKEN_USER*)bufferPtr;
+                    if (tokenUser->User.Sid.Value == null)
+                    {
+                        return null;
+                    }
+
+                    Span<char> name = stackalloc char[256];
+                    Span<char> domain = stackalloc char[256];
+                    uint nameLen = (uint)name.Length;
+                    uint domainLen = (uint)domain.Length;
+                    fixed (char* namePtr = name)
+                    fixed (char* domainPtr = domain)
+                    {
+                        // peUse 不可传空（部分系统路径无条件写入，空指针=进程内 AV；scanner 同款）
+                        SID_NAME_USE sidUse = default;
+                        if (!PInvoke.LookupAccountSid(
+                                default, tokenUser->User.Sid, new PWSTR(namePtr), &nameLen,
+                                new PWSTR(domainPtr), &domainLen, &sidUse))
+                        {
+                            return null;
+                        }
+
+                        return new string(namePtr, 0, (int)nameLen);
+                    }
+                }
+            }
+            finally
+            {
+                PInvoke.CloseHandle(token);
+            }
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public void Dispose()

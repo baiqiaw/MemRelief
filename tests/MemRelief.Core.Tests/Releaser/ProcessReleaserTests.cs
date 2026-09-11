@@ -7,48 +7,22 @@ namespace MemRelief.Core.Tests.Releaser;
 
 // T-09 两段式执行主链合成单测：身份校验/优雅→3s→强杀/无窗口直杀/去重/逐项结果映射/进度事件序列。
 // 全部分支以 FakeProcessOpener 驱动（确定性、无真实进程）；真机路径与计时 AC 见 ProcessReleaserIntegrationTests。
+// 同集合串行：FakeLiveProcess.CallLog 静态共享，防跨类并行互写（ReleaserFakeSerialCollection）。
+[Collection("ReleaserFakeSerial")]
 public class ProcessReleaserTests
 {
     public ProcessReleaserTests() => FakeLiveProcess.ResetLog();
 
-    /// <summary>进度事件记录器（Execute 前挂接，事后按树读取状态序）。</summary>
-    private sealed class ProgressRecorder
-    {
-        private readonly List<(int Pid, TreeState State)> _events = new();
-
-        public void Attach(ProcessReleaser releaser) =>
-            releaser.TreeProgress += (pid, state) =>
-            {
-                lock (_events)
-                {
-                    _events.Add((pid, state));
-                }
-            };
-
-        public string[] StatesOf(int pid)
-        {
-            lock (_events)
-            {
-                return _events.Where(x => x.Pid == pid).Select(x => x.State.ToString()).ToArray();
-            }
-        }
-
-        public int TotalCount
-        {
-            get
-            {
-                lock (_events)
-                {
-                    return _events.Count;
-                }
-            }
-        }
-    }
+    // ProgressRecorder 用共享测试辅助（ProgressRecorder.cs），不再类内私有副本
 
     private static ProcessReleaser CreateReleaser(FakeProcessOpener opener, out ProgressRecorder progress)
     {
-        // 合成时钟：GraceWaitMs 压缩（生产恒 3000，真机计时断言归集成测试）
-        var releaser = new ProcessReleaser(new TreePlanner(), opener) { GraceWaitMs = 200 };
+        // 合成时钟：GraceWaitMs 压缩（生产恒 3000，真机计时断言归集成测试）；当前用户名固定防环境漂移
+        var releaser = new ProcessReleaser(new TreePlanner(), opener)
+        {
+            GraceWaitMs = 200,
+            CurrentUserName = "tester",
+        };
         progress = new ProgressRecorder();
         progress.Attach(releaser);
         return releaser;
@@ -111,7 +85,7 @@ public class ProcessReleaserTests
     // —— 打开结局分类 ——
 
     [Fact]
-    public void Execute_打开受拒_Blocked携带错误码()
+    public void Execute_打开受拒_所有者不可读_NeedsElevation兜底()
     {
         var opener = new FakeProcessOpener();
         opener.AddDenied(3, 5);
@@ -121,7 +95,8 @@ public class ProcessReleaserTests
         var report = Execute(releaser, new[] { plan });
 
         var item = Item(report.Items, 3);
-        Assert.Equal(ReleaseItemOutcome.Blocked, item.Outcome); // 机械临时分类，权限二分归 T-10
+        // 快照所有者不可读（无句柄令牌亦不可得）：fail-safe 归 NeedsElevation（T-10 二分，PRD F3-7）
+        Assert.Equal(ReleaseItemOutcome.NeedsElevation, item.Outcome);
         Assert.Equal(5, item.ErrorCode);
     }
 
@@ -233,10 +208,10 @@ public class ProcessReleaserTests
     // —— 强杀失败复核 ——
 
     [Fact]
-    public void Execute_强杀失败仍存活_Blocked携带错误码()
+    public void Execute_强杀失败仍存活_非拒绝错误_机械Blocked携带错误码()
     {
         var opener = new FakeProcessOpener();
-        opener.AddLive(1, terminateError: 5);
+        opener.AddLive(1, terminateError: 6); // 非拒绝访问错误不经权限二分（PRD F3-7 限 Access Denied）
         var releaser = CreateReleaser(opener, out _);
 
         var plan = new TreePlan(1, new[] { Node(1) }, Array.Empty<SkippedNode>(), 0);
@@ -244,7 +219,7 @@ public class ProcessReleaserTests
 
         var item = Item(report.Items, 1);
         Assert.Equal(ReleaseItemOutcome.Blocked, item.Outcome);
-        Assert.Equal(5, item.ErrorCode);
+        Assert.Equal(6, item.ErrorCode);
     }
 
     [Fact]
@@ -399,10 +374,10 @@ public class ProcessReleaserTests
         Assert.Equal(request.ReleaseId, report.ReleaseId);
         Assert.Equal(request.RequestedAtUtc, report.RequestedAtUtc);
         Assert.True(report.StartedAtUtc <= report.FinishedAtUtc);
-        Assert.Null(report.Before); // 采样归 T-10
+        Assert.Null(report.Before); // 无采样器（合成默认）：采样字段如实空缺
         Assert.Null(report.After);
-        Assert.Null(report.MainReleasedBytes); // 双释放量归 T-10
-        Assert.Null(report.CheckReleasedBytes);
+        Assert.Null(report.CheckReleasedBytes); // 任一时点缺失 → 校验值 null
+        Assert.Equal(120 * Snap.Mb, report.MainReleasedBytes); // 双释放量（T-10）：被结束项快照私有提交合计
         Assert.Null(report.LogPersisted); // App 编排回填
         Assert.Equal(new[] { 10, 30 }, report.Items.Select(i => i.Pid).ToArray()); // 确定性排序
         // 计划未被变更（Execute 复用不重建不改写）

@@ -3,6 +3,13 @@ using MemRelief.Core.Releaser;
 
 namespace MemRelief.Core.Tests.Releaser;
 
+/// <summary>
+/// 合成通道测试类共用的串行集合：FakeLiveProcess.CallLog 为跨进程静态共享时序日志，
+/// 驱动假通道的测试类必须同集合串行执行，防跨类并行互写日志击穿时序断言。
+/// </summary>
+[CollectionDefinition("ReleaserFakeSerial")]
+public sealed class ReleaserFakeSerialCollection;
+
 // 合成通道假实现：按 pid 配置打开结局/身份匹配/窗口面/退出时机/强杀结局，
 // 驱动 ProcessReleaser 全部分支（Win32 真通道薄，覆盖率豁免；真机路径另有 TestProcs 集成测试）。
 internal sealed class FakeLiveProcess : ILiveProcess
@@ -34,6 +41,15 @@ internal sealed class FakeLiveProcess : ILiveProcess
 
     /// <summary>窗口自查抛异常（意外异常兜底路径触发器）。</summary>
     public bool ThrowOnWindows { get; set; }
+
+    /// <summary>等待探活回调（测试注入：模拟取消落在等待段内的确定性时点）。</summary>
+    public Action? OnWait { get; set; }
+
+    /// <summary>强杀回调（测试注入：模拟取消落在强杀段内的确定性时点）。</summary>
+    public Action? OnTerminate { get; set; }
+
+    /// <summary>执行期令牌所有者名（裸名；null = 不可读，上层回退快照 OwnerUser——T-10 二分）。</summary>
+    public string? TokenUserName { get; set; }
 
     public List<nint> ClosePostedTo { get; } = new();
     public int WaitExitProbeCalls { get; private set; }
@@ -73,6 +89,7 @@ internal sealed class FakeLiveProcess : ILiveProcess
     public bool WaitExit(int milliseconds)
     {
         WaitExitProbeCalls++;
+        OnWait?.Invoke();
         Log(Pid, "wait");
         return WaitExitProbeCalls >= ExitOnProbe;
     }
@@ -80,9 +97,12 @@ internal sealed class FakeLiveProcess : ILiveProcess
     public int? Terminate()
     {
         TerminateCalls++;
+        OnTerminate?.Invoke();
         Log(Pid, "terminate");
         return TerminateError;
     }
+
+    public string? TryGetTokenUserName() => TokenUserName;
 
     public void Dispose()
     {

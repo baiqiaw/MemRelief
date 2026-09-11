@@ -3,9 +3,8 @@ using MemRelief.Core.Contracts;
 namespace MemRelief.Core.Releaser;
 
 /// <summary>
-/// 释放域对外接口（releaser.md §5）：Plan/Execute + 事件 TreeProgress/ReleaseCompleted。
+/// 释放域对外接口（releaser.md §5）：Plan/Execute/Cancel + 事件 TreeProgress/ReleaseCompleted。
 /// 树构建唯一承载 = TreePlanner（Plan 委托）；Execute 复用 TreePlan 输出不重建树（T-08 契约）。
-/// Cancel 归 T-10（WBS T-10 范围：跳过未开始+等待进行中；T-09 先交主链，避免未实现占位）。
 /// </summary>
 public interface IReleaser
 {
@@ -22,9 +21,18 @@ public interface IReleaser
     /// <summary>
     /// 执行：多树并行两段式结束——每树身份校验 → 优雅（WM_CLOSE，无窗口项跳过）→ 3s → TerminateProcess
     /// （releaser.md §4.1）；单树 ≤5s（含 3s 优雅等待，PRD §3.4）。返回逐项结果报告；
-    /// Before/After 采样与双释放量归 T-10 填充。取消语义随 T-10 接入。
+    /// 报告含 Before/After 内存采样（Execute 进入时/全部树终态后，③.s4 裁决⑤）与双释放量
+    /// （主释放量=被结束进程快照私有提交合计，校验释放量=commit 前后差可负如实输出）。
+    /// 取消经 <see cref="Cancel"/>：取消收尾仍产出完整报告与完成事件。
     /// </summary>
     Task<ReleaseReport> Execute(ReleaseRequest request, IReadOnlyList<TreePlan> plans);
+
+    /// <summary>
+    /// 取消（PRD F3-5，T-10）：跳过所有未开始的树，进行中的树等待收尾——不得中断进行中的强杀
+    /// （防半完成态，releaser.md §6 法条）。幂等；空闲时调用为无操作（不污染下一次 Execute）。
+    /// 取消收尾的释放照常发出 <see cref="ReleaseCompleted"/>（至多一次），报告记已执行部分（PRD F3-6）。
+    /// </summary>
+    void Cancel();
 
     /// <summary>树级进度（执行工作线程发出，ui 负责编组——data-contracts §1.5 线程亲和性）。</summary>
     event Action<int, TreeState>? TreeProgress;

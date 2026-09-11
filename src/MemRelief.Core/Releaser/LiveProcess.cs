@@ -10,6 +10,12 @@ internal enum LiveOpenKind
     Denied,
 }
 
+/// <summary>拒绝访问错误码（Win32 ERROR_ACCESS_DENIED；打开分类与权限二分共用的单一事实源）。</summary>
+internal static class Win32Errors
+{
+    internal const int ErrorAccessDenied = 5;
+}
+
 /// <summary>
 /// 执行期进程通道工厂：按 pid 打开存活进程会话。打开失败二分——受拒（Denied，错误码 5 等）/
 /// 已消失（Vanished，pid 失效及其余非受拒失败）。
@@ -51,4 +57,11 @@ internal interface ILiveProcess : IDisposable
 
     /// <summary>强制结束：null = 成功；否则 Win32 错误码（5=拒绝访问，其余经上层存活复核实时的归类）。</summary>
     int? Terminate();
+
+    /// <summary>
+    /// 读取目标进程令牌的裸所有者名（OpenProcessToken → LookupAccountSid lpName 分量，
+    /// T-01 裁决①与快照 OwnerUser 同格式；PRD F3-7 权限二分的"令牌"源）。
+    /// null = 不可读（令牌拒绝/解析失败，上层回退快照 OwnerUser）。
+    /// </summary>
+    string? TryGetTokenUserName();
 }

@@ -2,7 +2,7 @@ namespace MemRelief.Core.Contracts;
 
 // 释放域契约（提供者 releaser；ui、storage 消费）。定义见 docs/specs/interfaces/data-contracts.md §1.3。
 // T-08 交付规划侧（ReleaseRequest/TreePlan）；T-09 交付执行侧契约化（TreeState/ReleaseItemOutcome/
-// ReleaseItemResult/ReleaseReport）；Cancel 与报告采样/释放量字段填充归 T-10（data-contracts §2 T-09 裁决）。
+// ReleaseItemResult/ReleaseReport）；T-10 交付 Cancel 与报告采样/释放量填充/权限二分。
 
 /// <summary>释放请求（编排方构造）。SnapshotRef = 目标快照标识（= ScanResult.TakenAtUtc），声明勾选基于哪次扫描。</summary>
 public record ReleaseRequest(
@@ -83,8 +83,10 @@ public enum TreeState
 }
 
 /// <summary>
-/// 释放逐项结果 8 值分类（契约 §1.3；NeedsElevation 与 Blocked 的权限二分归 T-10，
-/// T-09 对结束失败先按机械事实出 Blocked+错误码，T-10 按所有者/令牌二分细化）。
+/// 释放逐项结果 8 值分类（契约 §1.3）。NeedsElevation 与 Blocked 的权限二分（T-10，PRD F3-7）：
+/// 拒绝访问按目标所有者/令牌类型区分——非当前用户/服务/PPL → NeedsElevation；
+/// 当前用户且非服务仍失败 → Blocked（附系统错误码）；所有者不可读 fail-safe 归 NeedsElevation
+/// （<see cref="Releaser.AccessDeniedClassifier"/> 承载）。
 /// </summary>
 public enum ReleaseItemOutcome
 {
@@ -100,10 +102,10 @@ public enum ReleaseItemOutcome
     /// <summary>进程已变化跳过（进程名+创建时间与快照不一致或不可判——防 PID 复用杀错，fail-closed 不执行）。</summary>
     IdentityChanged,
 
-    /// <summary>需管理员（权限二分归 T-10；T-09 不产出此值）。</summary>
+    /// <summary>需管理员（拒绝访问且目标属其他用户/服务/PPL，或所有者不可读 fail-safe；附系统错误码）。</summary>
     NeedsElevation,
 
-    /// <summary>被拦截（T-09：结束失败按机械事实出本值+错误码；T-10 权限二分后为本值或 NeedsElevation）。</summary>
+    /// <summary>被拦截（拒绝访问且目标属当前用户且非服务仍失败，附系统错误码；及非拒绝类结束失败机械事实）。</summary>
     Blocked,
 
     /// <summary>保护名单跳过（自身命中或连带根因为保护名单）。</summary>
@@ -113,7 +115,7 @@ public enum ReleaseItemOutcome
     SkippedWhitelisted,
 }
 
-/// <summary>释放逐项结果。Reason 人读；ErrorCode = Win32 错误码（仅结束失败类携带）。</summary>
+/// <summary>释放逐项结果。Reason 人读；ErrorCode = Win32 错误码（仅失败类携带：打开受拒或结束失败）。</summary>
 public record ReleaseItemResult(
     int Pid,
     string Name,
@@ -124,10 +126,12 @@ public record ReleaseItemResult(
     int? ErrorCode = null);
 
 /// <summary>
-/// 释放报告（契约 §1.3）。T-09 填充：ReleaseId/RequestedAtUtc/StartedAtUtc/FinishedAtUtc/Items
-/// （Items 按 Pid 升序确定性输出，每 Pid 恰一项）。
-/// Before/After/MainReleasedBytes/CheckReleasedBytes 归 T-10 填充（采样与双释放量为 T-10 WBS 范围，
-/// T-09 以 null 表达未填充；LogPersisted 由 App 编排调日志后回填，null=未尝试）。
+/// 释放报告（契约 §1.3）。ReleaseId/RequestedAtUtc/StartedAtUtc/FinishedAtUtc/Items
+/// （Items 按 Pid 升序确定性输出，每 Pid 恰一项；取消收尾记已执行部分，PRD F3-6）。
+/// Before/After（MemoryOverview，③.s4 裁决⑤时点：Before=Execute 进入时第一树启动前、
+/// After=全部树终态后含取消收尾；采样失败可空）、MainReleasedBytes（被结束进程快照私有提交合计）、
+/// CheckReleasedBytes（commit 前后差，可负如实输出，任一时点缺失为 null）由 releaser 填充（T-10）；
+/// LogPersisted 由 App 编排调日志后回填，null=未尝试。
 /// </summary>
 public record ReleaseReport(
     Guid ReleaseId,

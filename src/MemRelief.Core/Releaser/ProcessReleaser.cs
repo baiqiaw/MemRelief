@@ -1,24 +1,41 @@
 using MemRelief.Core.Contracts;
+using MemRelief.Core.Scanner;
 
 namespace MemRelief.Core.Releaser;
 
 /// <summary>
-/// 两段式执行主链（T-09）：多树并行，每树 身份校验 → 优雅（WM_CLOSE，无窗口项跳过）→ 3s → TerminateProcess
-/// （releaser.md §4.1/§4.2，PRD F3-4）。树构建唯一承载 = <see cref="TreePlanner"/>（Plan 委托，
-/// Execute 只消费 TreePlan 不重建树——T-08 契约）。
+/// 两段式执行主链（T-09）+ 取消与结果报告（T-10）：多树并行，每树 身份校验 → 优雅（WM_CLOSE，
+/// 无窗口项跳过）→ 3s → TerminateProcess（releaser.md §4.1/§4.2，PRD F3-4）。
+/// 树构建唯一承载 = <see cref="TreePlanner"/>（Plan 委托，Execute 只消费 TreePlan 不重建树——T-08 契约）。
 /// 执行期去重（data-contracts §2 T-09 裁决②）：Execute 入口按传入计划序做全局 pid 所有权预分配，
 /// 同一进程多树共现时仅属主树执行并产出唯一逐项结果（防并行双杀与释放量双计）；
 /// 节点出现优先于跳过项出现（跨"祖先树连带跳过/自身树节点"场景，显式勾选的节点照常执行）。
-/// 结束失败按机械事实出 Blocked+Win32 错误码；NeedsElevation/Blocked 权限二分归 T-10。
-/// 采样（Before/After）与双释放量归 T-10；Cancel 归 T-10。
+/// 权限二分（T-10，PRD F3-7）：拒绝访问经 <see cref="AccessDeniedClassifier"/> 按所有者/令牌二分
+/// ——打开受拒按快照所有者（无句柄令牌不可得）；强杀拒绝按执行期令牌名优先、快照 OwnerUser 回退；
+/// 非拒绝错误维持机械 Blocked+错误码。
+/// 取消（T-10，PRD F3-5）：<see cref="Cancel"/> 跳过未开始的树、进行中树等待收尾（不中断强杀）；
+/// 取消收尾仍发完成事件（至多一次），报告记已执行部分（PRD F3-6）。
+/// 报告采样（T-10，③.s4 裁决⑤）：Before=Execute 进入时（第一树启动前）、After=全部树终态后；
+/// 主释放量=被结束进程（Released/ForceKilled）快照私有提交合计；校验释放量=commit 前后差
+/// （可负如实输出，任一时点采样缺失为 null）。
 /// </summary>
 public sealed class ProcessReleaser : IReleaser
 {
     private readonly TreePlanner _planner;
     private readonly ILiveProcessOpener _opener;
+    private readonly IScanner? _overviewSampler;
+
+    /// <summary>取消意图（PRD F3-5）：仅影响未开始树的启动，进行中树不受影响。Execute 入口重置。</summary>
+    private volatile bool _cancelRequested;
 
     /// <summary>优雅等待总预算（PRD F3-4"等待 3 秒"；供合成单测压缩时钟，生产恒默认 3000）。</summary>
     internal int GraceWaitMs { get; set; } = 3000;
+
+    /// <summary>
+    /// 当前用户名（权限二分比对基准，T-01 裁决①与 OwnerUser 同为裸名、OrdinalIgnoreCase）。
+    /// internal 可注入供合成单测固定，生产默认 <see cref="Environment.UserName"/>。
+    /// </summary>
+    internal string CurrentUserName { get; set; } = Environment.UserName;
 
     /// <summary>等待阶段轮询间隔（WaitExit(0) 探活 + 有界休眠，检测延迟 ≤ 本值）。</summary>
     private const int PollIntervalMs = 100;
@@ -27,15 +44,16 @@ public sealed class ProcessReleaser : IReleaser
     public event Action<ReleaseReport>? ReleaseCompleted;
 
     public ProcessReleaser()
-        : this(new TreePlanner(), new Win32ProcessChannel())
+        : this(new TreePlanner(), new Win32ProcessChannel(), new Scanner.Scanner())
     {
     }
 
-    /// <summary>通道注入（合成单测以假 opener 驱动全部分支；生产经默认构造走 Win32 通道）。</summary>
-    internal ProcessReleaser(TreePlanner planner, ILiveProcessOpener opener)
+    /// <summary>通道注入（合成单测以假 opener/采样器驱动全部分支；生产经默认构造走 Win32 通道）。</summary>
+    internal ProcessReleaser(TreePlanner planner, ILiveProcessOpener opener, IScanner? overviewSampler = null)
     {
         _planner = planner;
         _opener = opener;
+        _overviewSampler = overviewSampler;
     }
 
     /// <inheritdoc />
@@ -47,12 +65,20 @@ public sealed class ProcessReleaser : IReleaser
         _planner.Plan(request, scan, whitelist, rulePack);
 
     /// <inheritdoc />
+    public void Cancel() => _cancelRequested = true;
+
+    /// <inheritdoc />
     public async Task<ReleaseReport> Execute(ReleaseRequest request, IReadOnlyList<TreePlan> plans)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(plans);
 
+        // 新一次释放生命周期：入口前残留的取消意图不作数（Cancel 幂等无副作用口径）；
+        // 单释放并发由 ui 状态机准入保证（PRD §3.6 释放中禁用入口），Core 不另设重入锁
+        _cancelRequested = false;
+
         var startedAtUtc = DateTime.UtcNow;
+        var before = await SampleOverviewSafeAsync().ConfigureAwait(false); // 裁决⑤：进入时、第一树启动前
 
         // —— 违约输入快速失败（TreePlanner 同款口径，cross-review 收口）：勾选根互异、树内 pid 唯一
         //    由 Plan 产出保证；公开 API 对手拼计划防御（重复会双开句柄双杀并产出重复项） ——
@@ -78,11 +104,13 @@ public sealed class ProcessReleaser : IReleaser
 
         // —— 所有权预分配（裁决②）：节点优先于跳过项，传入计划序内先到先得（确定性，无运行期竞态） ——
         var nodeOwner = new Dictionary<int, TreePlan>();
+        var committedByPid = new Dictionary<int, long>(); // 主释放量归因源：快照私有提交（PRD F3-6）
         foreach (var plan in plans)
         {
             foreach (var node in plan.Nodes)
             {
                 nodeOwner.TryAdd(node.Snapshot.Pid, plan);
+                committedByPid.TryAdd(node.Snapshot.Pid, node.Snapshot.PrivateCommittedBytes);
             }
         }
 
@@ -104,16 +132,13 @@ public sealed class ProcessReleaser : IReleaser
         var perTreeItems = await Task.WhenAll(
             plans.Select(plan => Task.Run(() => RunTree(plan, nodeOwner))));
 
+        var after = await SampleOverviewSafeAsync().ConfigureAwait(false); // 裁决⑤：全部树终态后（含取消收尾）
+
         var items = skipItems.Concat(perTreeItems.SelectMany(x => x))
             .OrderBy(item => item.Pid)
             .ToList();
 
-        var report = new ReleaseReport(
-            request.ReleaseId,
-            request.RequestedAtUtc,
-            startedAtUtc,
-            DateTime.UtcNow,
-            items);
+        var report = BuildReport(request, startedAtUtc, items, before, after, committedByPid);
 
         // 至多一次；随完成上下文发出（提供方不做线程切换，data-contracts §1.5）。
         // 订阅者异常就地隔离：释放已终局，通知通道 misuse 不得使 Execute 假败（cross-review 收口）
@@ -129,6 +154,61 @@ public sealed class ProcessReleaser : IReleaser
         return report;
     }
 
+    /// <summary>
+    /// 报告组装（T-10）：逐项结果 + 双释放量（PRD F3-6）——主释放量只计被结束项
+    /// （Released/ForceKilled，可归因）；校验释放量 = 系统 commit 前后差
+    /// （正=下降；可负/失真如实输出，任一时点采样缺失为 null）。
+    /// </summary>
+    private static ReleaseReport BuildReport(
+        ReleaseRequest request,
+        DateTime startedAtUtc,
+        IReadOnlyList<ReleaseItemResult> items,
+        MemoryOverview? before,
+        MemoryOverview? after,
+        Dictionary<int, long> committedByPid)
+    {
+        var mainReleasedBytes = items
+            .Where(item => item.Outcome is ReleaseItemOutcome.Released or ReleaseItemOutcome.ForceKilled)
+            .Sum(item => committedByPid.TryGetValue(item.Pid, out var bytes) ? bytes : 0);
+        long? checkReleasedBytes = before is not null && after is not null
+            ? before.CommitBytes - after.CommitBytes
+            : null;
+
+        return new ReleaseReport(
+            request.ReleaseId,
+            request.RequestedAtUtc,
+            startedAtUtc,
+            DateTime.UtcNow,
+            items)
+        {
+            Before = before,
+            After = after,
+            MainReleasedBytes = mainReleasedBytes,
+            CheckReleasedBytes = checkReleasedBytes,
+        };
+    }
+
+    /// <summary>
+    /// 概览采样（经 scanner.SampleOverview，releaser.md §5）：挪离调用线程；
+    /// 失败如实空缺（契约 Before/After 可空），不阻塞释放主链。
+    /// </summary>
+    private async Task<MemoryOverview?> SampleOverviewSafeAsync()
+    {
+        if (_overviewSampler is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await Task.Run(_overviewSampler.SampleOverview).ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     // —— 单树状态机：Pending → Closing → Waiting(3s) → Killing → Done；Pending → Killing 直达（整树无窗口）；无实际动作 → Skipped ——
 
     private List<ReleaseItemResult> RunTree(TreePlan plan, Dictionary<int, TreePlan> nodeOwner)
@@ -138,6 +218,14 @@ public sealed class ProcessReleaser : IReleaser
         //（维持 §1.3"每 Pid 恰一项"，cross-review 收口；Failed 为防御性终态）
         var inflight = new Dictionary<int, (ProcessSnapshot Snapshot, ILiveProcess Live)>();
         Emit(plan.RootPid, TreeState.Pending);
+
+        // 取消语义（PRD F3-5）：未开始的树跳过（Pending → Skipped），不产出逐项结果——
+        // 报告记已执行部分（PRD F3-6）；已越过分派点的树（在途）不受后续取消影响
+        if (_cancelRequested)
+        {
+            Emit(plan.RootPid, TreeState.Skipped);
+            return items;
+        }
 
         try
         {
@@ -160,14 +248,22 @@ public sealed class ProcessReleaser : IReleaser
                 var live = _opener.TryOpen(snapshot.Pid, out var openKind, out var openError);
                 if (live == null)
                 {
-                    // 打开受拒：无法打开即无法误杀，机械事实优先 → Blocked+错误码（权限二分归 T-10）；
-                    // 其余打开失败（pid 失效等）= 执行到达前已退出 → Exited
-                    items.Add(openKind == LiveOpenKind.Denied
-                        ? new ReleaseItemResult(snapshot.Pid, snapshot.Name, snapshot.ExecutablePath,
-                            snapshot.CommandLine, ReleaseItemOutcome.Blocked,
-                            $"打开进程受拒（Win32 错误 {openError}），未能结束", openError)
-                        : new ReleaseItemResult(snapshot.Pid, snapshot.Name, snapshot.ExecutablePath,
-                            snapshot.CommandLine, ReleaseItemOutcome.Exited, "执行时进程已不存在"));
+                    if (openKind == LiveOpenKind.Denied)
+                    {
+                        // 打开受拒：无法打开即无法误杀；拒绝访问按所有者二分（快照 OwnerUser——
+                        // 无句柄令牌不可得，PRD F3-7；所有者不可读 fail-safe 归 NeedsElevation）。
+                        // 该路径无执行期身份佐证，判定依据在 Reason 注明（cross-review 收口）
+                        var (outcome, reason) = AccessDeniedClassifier.Classify(
+                            snapshot.OwnerUser, CurrentUserName, openError, "打开进程",
+                            ownerSourceNote: "按扫描快照所有者判定");
+                        items.Add(SnapshotItem(snapshot, outcome, reason, openError));
+                    }
+                    else
+                    {
+                        // 其余打开失败（pid 失效等）= 执行到达前已退出 → Exited
+                        items.Add(SnapshotItem(snapshot, ReleaseItemOutcome.Exited, "执行时进程已不存在"));
+                    }
+
                     continue;
                 }
 
@@ -177,8 +273,7 @@ public sealed class ProcessReleaser : IReleaser
                     // 身份不一致或不可判（快照哨兵/存活侧读取失败）：跳过不执行，防 PID 复用杀错（fail-closed）
                     inflight.Remove(snapshot.Pid);
                     live.Dispose();
-                    items.Add(new ReleaseItemResult(snapshot.Pid, snapshot.Name, snapshot.ExecutablePath,
-                        snapshot.CommandLine, ReleaseItemOutcome.IdentityChanged,
+                    items.Add(SnapshotItem(snapshot, ReleaseItemOutcome.IdentityChanged,
                         "进程身份与扫描快照不一致（名称或创建时间），已跳过不执行"));
                     continue;
                 }
@@ -243,9 +338,7 @@ public sealed class ProcessReleaser : IReleaser
                     graceful.RemoveAt(i);
                     inflight.Remove(entry.Snapshot.Pid);
                     entry.Live.Dispose();
-                    items.Add(new ReleaseItemResult(entry.Snapshot.Pid, entry.Snapshot.Name,
-                        entry.Snapshot.ExecutablePath, entry.Snapshot.CommandLine,
-                        ReleaseItemOutcome.Released,
+                    items.Add(SnapshotItem(entry.Snapshot, ReleaseItemOutcome.Released,
                         entry.Windows.Count > 0
                             ? "优雅关闭成功（WM_CLOSE 后退出）"
                             : "等待期退出（窗口自查失败，按优雅路径兜底）"));
@@ -279,11 +372,10 @@ public sealed class ProcessReleaser : IReleaser
             //（在途项逐 pid 补齐结果项，维持 §1.3"每 Pid 恰一项"；仅整树无任何产物时补树级保底项）
             var detail = ex.Message is { Length: > 200 } trimmed ? trimmed[..200] : ex.Message;
             var reason = $"树执行意外终止：{ex.GetType().Name} {detail}";
-            foreach (var (pid, entry) in inflight)
+            foreach (var (_, entry) in inflight)
             {
                 entry.Live.Dispose();
-                items.Add(new ReleaseItemResult(pid, entry.Snapshot.Name, entry.Snapshot.ExecutablePath,
-                    entry.Snapshot.CommandLine, ReleaseItemOutcome.Blocked, reason));
+                items.Add(SnapshotItem(entry.Snapshot, ReleaseItemOutcome.Blocked, reason));
             }
             inflight.Clear();
             Emit(plan.RootPid, TreeState.Failed);
@@ -297,7 +389,11 @@ public sealed class ProcessReleaser : IReleaser
         }
     }
 
-    /// <summary>强杀列表内全部进程：成功→ForceKilled；失败按存活复核（已退→Exited，仍存活→Blocked+错误码）。</summary>
+    /// <summary>
+    /// 强杀列表内全部进程：成功→ForceKilled；失败按存活复核（已退→Exited；仍存活且拒绝访问→
+    /// 执行期令牌名优先、快照 OwnerUser 回退的权限二分，其余错误机械 Blocked+错误码）。
+    /// 取消不中断本段（PRD F3-5 法条：进行中的强杀不可打断，防半完成态）。
+    /// </summary>
     private void TerminateAll(List<GraceEntry> entries, List<ReleaseItemResult> items,
         Dictionary<int, (ProcessSnapshot Snapshot, ILiveProcess Live)> inflight)
     {
@@ -306,16 +402,24 @@ public sealed class ProcessReleaser : IReleaser
             var error = entry.Live.Terminate();
             if (error != null && !entry.Live.WaitExit(0))
             {
-                // 强杀失败且仍存活：机械事实 Blocked+错误码（NeedsElevation/Blocked 二分归 T-10）
-                items.Add(new ReleaseItemResult(entry.Snapshot.Pid, entry.Snapshot.Name,
-                    entry.Snapshot.ExecutablePath, entry.Snapshot.CommandLine,
-                    ReleaseItemOutcome.Blocked, $"强制结束失败（Win32 错误 {error}）", error));
+                // 强杀失败且仍存活：拒绝访问按所有者/令牌二分（PRD F3-7），其余错误机械事实 Blocked
+                if (error == Win32Errors.ErrorAccessDenied)
+                {
+                    var (outcome, reason) = AccessDeniedClassifier.Classify(
+                        entry.Live.TryGetTokenUserName() ?? entry.Snapshot.OwnerUser,
+                        CurrentUserName, error.Value, "强制结束");
+                    items.Add(SnapshotItem(entry.Snapshot, outcome, reason, error));
+                }
+                else
+                {
+                    items.Add(SnapshotItem(entry.Snapshot, ReleaseItemOutcome.Blocked,
+                        $"强制结束失败（Win32 错误 {error}）", error));
+                }
             }
             else
             {
                 // 强杀成功；或失败但已退（等待末尾竞态）——如实分列 ForceKilled/Exited
-                items.Add(new ReleaseItemResult(entry.Snapshot.Pid, entry.Snapshot.Name,
-                    entry.Snapshot.ExecutablePath, entry.Snapshot.CommandLine,
+                items.Add(SnapshotItem(entry.Snapshot,
                     error == null ? ReleaseItemOutcome.ForceKilled : ReleaseItemOutcome.Exited,
                     error == null ? "强制结束（TerminateProcess）" : "强制结束前进程已自行退出"));
             }
@@ -325,6 +429,11 @@ public sealed class ProcessReleaser : IReleaser
         }
         entries.Clear();
     }
+
+    /// <summary>快照投影标准形（Pid/Name/Path/CommandLine 四字段单一承载，防增列漏改——DRY 收口）。</summary>
+    private static ReleaseItemResult SnapshotItem(
+        ProcessSnapshot snapshot, ReleaseItemOutcome outcome, string? reason, int? errorCode = null) =>
+        new(snapshot.Pid, snapshot.Name, snapshot.ExecutablePath, snapshot.CommandLine, outcome, reason, errorCode);
 
     private static ReleaseItemResult SkippedItem(SkippedNode skipped) =>
         new(

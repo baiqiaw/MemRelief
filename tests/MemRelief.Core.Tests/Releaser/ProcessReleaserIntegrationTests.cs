@@ -17,31 +17,7 @@ public class ProcessReleaserIntegrationTests
             AppContext.BaseDirectory, "..", "..", "..", "..",
             "MemRelief.TestProcs", "bin", "Debug", "net10.0", "MemRelief.TestProcs.exe"));
 
-    /// <summary>进度事件记录器（Execute 前挂接）。</summary>
-    private sealed class ProgressRecorder
-    {
-        private readonly List<(int Pid, TreeState State)> _events = new();
-
-        public ProgressRecorder Attach(IReleaser releaser)
-        {
-            releaser.TreeProgress += (pid, state) =>
-            {
-                lock (_events)
-                {
-                    _events.Add((pid, state));
-                }
-            };
-            return this;
-        }
-
-        public string[] StatesOf(int pid)
-        {
-            lock (_events)
-            {
-                return _events.Where(x => x.Pid == pid).Select(x => x.State.ToString()).ToArray();
-            }
-        }
-    }
+    // ProgressRecorder 用共享测试辅助（ProgressRecorder.cs），不再类内私有副本
 
     // —— 身份探测：与 releaser 同通道（OpenProcess QUERY_LIMITED + GetProcessTimes/QueryFullProcessImageName）——
 
@@ -399,6 +375,72 @@ public class ProcessReleaserIntegrationTests
             Assert.All(report.Items, i => Assert.Equal(ReleaseItemOutcome.ForceKilled, i.Outcome));
             AssertGone(pid1, "并行孤儿 1");
             AssertGone(pid2, "并行孤儿 2");
+        }
+        finally
+        {
+            Cleanup(pid1);
+            Cleanup(pid2);
+        }
+    }
+
+    // —— 真机：释放中取消 → 进行中树收尾/未开始树跳过（T-10，PRD F3-5；防半完成态） ——
+
+    [Fact]
+    public async Task 真机_释放中取消_已开始树收尾_无半完成态()
+    {
+        var pid1 = SpawnOrphan();
+        var pid2 = SpawnOrphan();
+        try
+        {
+            var (creation1, name1) = ProbeIdentity(pid1);
+            var (creation2, name2) = ProbeIdentity(pid2);
+            var releaser = new ProcessReleaser();
+            var progress = new ProgressRecorder().Attach(releaser);
+            var plans = PlanLive(releaser,
+                Snapshot(pid1, creation1, name1),
+                Snapshot(pid2, creation2, name2));
+
+            var reports = new List<ReleaseReport>();
+            releaser.ReleaseCompleted += r =>
+            {
+                lock (reports)
+                {
+                    reports.Add(r);
+                }
+            };
+            var executeTask = releaser.Execute(
+                new ReleaseRequest(Guid.NewGuid(), DateTime.UtcNow,
+                    new HashSet<int> { pid1, pid2 }, DateTime.UtcNow),
+                plans);
+
+            // 等任一树进入执行（Pending 事件）后取消：已开始树收尾，未开始树跳过
+            for (var i = 0; i < 300 && progress.TotalCount == 0; i++)
+            {
+                await Task.Delay(10);
+            }
+
+            releaser.Cancel();
+            releaser.Cancel(); // 重复取消幂等
+            var report = await executeTask;
+
+            Assert.Single(reports); // 取消收尾仍至多一次完成事件
+            foreach (var pid in new[] { pid1, pid2 })
+            {
+                var states = progress.StatesOf(pid);
+                // 无半完成态：每树要么未开始即跳过，要么完整收尾至终态
+                Assert.True(
+                    states is ["Pending", "Skipped"] or [.., "Done"],
+                    $"树 {pid} 出现非终态序列：{string.Join(",", states)}");
+            }
+
+            Assert.Equal(report.Items.Count, report.Items.Select(i => i.Pid).Distinct().Count());
+            Assert.All(report.Items, i => Assert.Equal(ReleaseItemOutcome.ForceKilled, i.Outcome));
+            Assert.Equal(2, report.Items.Count + progress.AllStates.Count(s => s.State == TreeState.Skipped));
+            // 已执行树必须已终结；被跳过树进程仍存活（本次未执行）不在此断言，finally Cleanup 兜底
+            foreach (var pid in report.Items.Select(i => i.Pid))
+            {
+                AssertGone(pid, "取消收尾孤儿");
+            }
         }
         finally
         {
