@@ -6,7 +6,7 @@ namespace MemRelief.App;
 
 /// <summary>
 /// 主窗口（View 层）：仅绑定，无业务逻辑（ui.md 职责边界）。
-/// 布局骨架：顶部概览条 + 搜索框 + 中部列表区 + 底部操作栏；三级列表/释放/白名单面板由 T-15/T-16/T-26 落地。
+/// 布局：顶部概览条 + 搜索框 + 三级列表（T-15）+ 底部操作栏；释放交互与白名单管理面板由 T-16/T-26 落地。
 /// </summary>
 public partial class MainWindow : Window
 {

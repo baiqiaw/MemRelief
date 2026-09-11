@@ -46,7 +46,7 @@
 
 ### 1.2 判定域（rules 提供）
 
-- **`Classification`**：`Pid`、`Level`（enum{Recommend, Caution, Protected, Unmatched, Whitelisted}；**代码枚举序 Unmatched=0** 为防御性默认）、`Bases`（有序 `Basis{SignalId, Detail}`；SignalId=口径表编号，**0=保留值**：非口径表依据[采集失败兜底/本工具自身/系统保护穷举名/名单不可用/跨用户预标]，口径表无对应行）、`TreePrivateBytes`（long，树合计唯一承载）、`WouldBeRevived`（bool?，null=不适用/未评估）、`SourceEntries`、`RequiresElevation`（bool，预标：服务[口径#8]与受拒[口径#11]由 T-06 Classify 输出；跨用户预标归 T-07，含依据入 Bases）。
+- **`Classification`**：`Pid`、`Level`（enum{Recommend, Caution, Protected, Unmatched, Whitelisted}；**代码枚举序 Unmatched=0** 为防御性默认）、`Bases`（有序 `Basis{SignalId, Detail}`；SignalId=口径表编号，**0=保留值**：非口径表依据[采集失败兜底/本工具自身/系统保护穷举名/名单不可用/跨用户预标]，口径表无对应行；**Detail 自解释即展示文案口径**——ui 直接展示 Detail，0 值多类依据不引入结构化键；原因侧唯一展示补全=口径 #8 失败恢复服务文案按 R02 GWT 附 services.msc 建议后缀（另拉起提示要素按来源类型分流禁用入口建议：服务→services.msc、计划任务→taskschd.msc，非 Detail 补全）[App 侧集中一处，issue #28 裁决②（2026-09-11 T-15 开工裁决收口，与 §2 ③.s4 裁决⑥同批落地）]）、`TreePrivateBytes`（long，树合计唯一承载）、`WouldBeRevived`（bool?，null=不适用/未评估）、`SourceEntries`、`RequiresElevation`（bool，预标：服务[口径#8]与受拒[口径#11]由 T-06 Classify 输出；跨用户预标归 T-07，含依据入 Bases）。
 - **`QueryResult`**（T-07 交付）：`Pid`+`Name`（=契约的 Target，被定位进程）、`Outcome`（复用 `Level` 枚举：Recommend/Caution/Protected=各级；Unmatched=未命中规则不进列表；Whitelisted=白名单排除——不另设第二套分级枚举。v1 引擎结构上不产生 Unmatched——每进程至少命中一条依据，此通道为防御性保留）、`Bases`（=对应 Classification 的依据，逐字段一致）。`Query` 按 Pid 或进程名（OrdinalIgnoreCase）定位，同名多进程全部返回（每进程一个 `QueryResult`，调用方得到 `IReadOnlyList<QueryResult>`）；Pid 与名同时给出时 Pid 优先（名参数忽略）；两者均空 → 空集；classifications 缺项的进程不返回。Query 消费编排方持有的 Classify 全量输出（不重算判定，判定单一事实源=Classify）。
 
 ### 1.3 释放域（releaser 提供）

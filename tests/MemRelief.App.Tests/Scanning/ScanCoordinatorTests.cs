@@ -38,7 +38,7 @@ public class ScanCoordinatorTests
             rules ?? new FakeRules(),
             store ?? new FakePackStore(FakePackStore.FailuresMode.Clean),
             context,
-            new WhitelistSnapshot([]));
+            () => new WhitelistSnapshot([]));
     }
 
     [Fact]
@@ -134,11 +134,49 @@ public class ScanCoordinatorTests
         var context = new ClassificationContext(1, "u");
         var coordinator = new ScanCoordinator(
             new FakeScanner(), rules, new FakePackStore(FakePackStore.FailuresMode.Clean),
-            context, whitelist);
+            context, () => whitelist);
 
         await coordinator.RunAsync();
 
         Assert.Single(rules.ClassifyCalls); // 白名单经 Classify 入参注入（编排方装载，rules 零 I/O）
+    }
+
+    // —— T-15 加白即时性（③.s4 裁决⑥）：加白后重跑 Classify 的编排入口 ——
+
+    [Fact]
+    public async Task 重跑判定_传入指定快照_白名单取提供者当前视图()
+    {
+        var rules = new FakeRules();
+        var whitelist = new FakeWhitelistStore();
+        var context = new ClassificationContext(1, "u");
+        var coordinator = new ScanCoordinator(
+            new FakeScanner(), rules, new FakePackStore(FakePackStore.FailuresMode.Clean),
+            context, () => whitelist.Snapshot());
+
+        whitelist.Add("b.exe");
+        await coordinator.ReclassifyAsync(FakeScanner.DefaultSnapshot);
+
+        var call = Assert.Single(rules.ClassifyCalls);
+        Assert.Equal(FakeScanner.DefaultSnapshot, call.Scan);
+        Assert.NotNull(call.Pack);
+        // 提供者返回 Add 后的最新快照（单条目），非构造期固定值——白名单实参逐字断言
+        var entry = Assert.Single(call.Whitelist.Entries);
+        Assert.Equal("b.exe", entry.Name);
+    }
+
+    [Fact]
+    public async Task 重跑判定_名单加载失败_同扫描链传空包()
+    {
+        // 装载规则单点：Reclassify 与 RunAsync 共用（残包→Empty 兜底不因入口不同而分叉）
+        var rules = new FakeRules();
+        var whitelist = new FakeWhitelistStore();
+        var coordinator = new ScanCoordinator(
+            new FakeScanner(), rules, new FakePackStore(FakePackStore.FailuresMode.Broken),
+            new ClassificationContext(1, "u"), () => whitelist.Snapshot());
+
+        await coordinator.ReclassifyAsync(FakeScanner.DefaultSnapshot);
+
+        Assert.Equal(RulePack.Empty, rules.ClassifyCalls.Single().Pack);
     }
 
     [Theory]

@@ -23,6 +23,8 @@ public record ScanRun(bool Success, ScanOutcome? Outcome, string? FailureReason)
 /// TakeSnapshot → CandidateIds → CollectSignatures → Classify。
 /// 名单/白名单由编排方装载后参数注入（rules 纯函数，零 I/O）；
 /// 名单加载失败 → 传 RulePack.Empty 兜底（system 法-3，RulePackLoadResult 契约）。
+/// 白名单以提供者注入（T-15 加白即时性，③.s4 裁决⑥）：每次判定取当前一致视图，
+/// 加白成功后重跑 <see cref="ReclassifyAsync"/> 即生效。
 /// </summary>
 public sealed class ScanCoordinator
 {
@@ -30,20 +32,20 @@ public sealed class ScanCoordinator
     private readonly IRulesEngine _rules;
     private readonly IRulePackStore _rulePackStore;
     private readonly ClassificationContext _context;
-    private readonly WhitelistSnapshot _whitelist;
+    private readonly Func<WhitelistSnapshot> _whitelistProvider;
 
     public ScanCoordinator(
         IScanner scanner,
         IRulesEngine rules,
         IRulePackStore rulePackStore,
         ClassificationContext context,
-        WhitelistSnapshot whitelist)
+        Func<WhitelistSnapshot> whitelistProvider)
     {
         _scanner = scanner;
         _rules = rules;
         _rulePackStore = rulePackStore;
         _context = context;
-        _whitelist = whitelist;
+        _whitelistProvider = whitelistProvider;
     }
 
     /// <summary>执行一次四步扫描链；任一步异常收口为失败结果（携带原因，不向上抛）。</summary>
@@ -60,14 +62,7 @@ public sealed class ScanCoordinator
             // 第 3 步：仅对候选验签并回填（口径 #9“仅候选执行”）
             var verified = await _scanner.CollectSignatures(snapshot, candidates).ConfigureAwait(false);
 
-            // 第 4 步：判定（名单包+白名单+上下文参数注入）。
-            // storage 法条：任一名单装载失败即整包替换为 RulePack.Empty（禁残包入判定，system 法-3
-            // 经“保护性依据缺失”保守降级；RulePackLoadResult 契约“Failures 非空时编排方应传 Empty”）
-            var packResult = _rulePackStore.LoadRulePack();
-            var pack = packResult.Failures.Count > 0 ? RulePack.Empty : packResult.Pack;
-            var classifications = await _rules.Classify(
-                verified, _whitelist, pack, _context).ConfigureAwait(false);
-
+            var classifications = await ClassifyCoreAsync(verified).ConfigureAwait(false);
             return ScanRun.Ok(new ScanOutcome(verified, classifications));
         }
         catch (Exception ex)
@@ -79,5 +74,22 @@ public sealed class ScanCoordinator
                 : $"{ex.GetType().Name}: {ex.Message}";
             return ScanRun.Fail(reason);
         }
+    }
+
+    /// <summary>
+    /// 对既有快照重跑判定（加白即时性，③.s4 裁决⑥）：白名单取提供者当前一致视图，
+    /// 名单装载规则与扫描链同一实现（<see cref="ClassifyCoreAsync"/> 单点，兜底不分叉）。
+    /// </summary>
+    public Task<IReadOnlyList<Classification>> ReclassifyAsync(ScanResult verifiedSnapshot) =>
+        ClassifyCoreAsync(verifiedSnapshot);
+
+    /// <summary>判定步（名单包+白名单+上下文参数注入）。storage 法条：任一名单装载失败即整包替换为
+    /// RulePack.Empty（禁残包入判定，system 法-3 经“保护性依据缺失”保守降级）。</summary>
+    private async Task<IReadOnlyList<Classification>> ClassifyCoreAsync(ScanResult verified)
+    {
+        var packResult = _rulePackStore.LoadRulePack();
+        var pack = packResult.Failures.Count > 0 ? RulePack.Empty : packResult.Pack;
+        return await _rules.Classify(
+            verified, _whitelistProvider(), pack, _context).ConfigureAwait(false);
     }
 }

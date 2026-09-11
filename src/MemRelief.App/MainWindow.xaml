@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Height="640" Width="960">
+        Height="720" Width="1024">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
     </Window.Resources>
@@ -32,34 +32,154 @@
                 <!-- 扫描失败提示（PRD §3.7“扫描失败”行；与零推荐空态严格区分） -->
                 <TextBlock Text="{Binding ScanFailedMessage}" Foreground="Red" Margin="0,6,0,0"
                            Visibility="{Binding HasScanFailed, Converter={StaticResource BoolToVisibility}}" />
+                <!-- 白名单轻提示（损坏自愈重置/加白失败，storage.md §4.1 Recovery 通道） -->
+                <TextBlock Text="{Binding WhitelistNotice}" Foreground="DarkGoldenrod" Margin="0,4,0,0"
+                           Visibility="{Binding HasWhitelistNotice, Converter={StaticResource BoolToVisibility}}" />
             </StackPanel>
         </Border>
 
-        <!-- 搜索框：全量判定查询归 T-15（IRulesEngine.Query），本包承载布局与禁用态 -->
+        <!-- 搜索框：全量判定查询（IRulesEngine.Query，R02）；可用性随矩阵 -->
         <Border DockPanel.Dock="Top" Padding="12,8">
-            <TextBox IsEnabled="{Binding Availability.ListInputEnabled}"
-                     MaxWidth="420" HorizontalAlignment="Left"
-                     ToolTip="输入进程名查询判定结果与依据" />
+            <StackPanel Orientation="Horizontal">
+                <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                         IsEnabled="{Binding Availability.ListInputEnabled}"
+                         Width="320" MinHeight="28" VerticalContentAlignment="Center"
+                         ToolTip="输入进程名或 PID，查询任意进程（含列表外）的判定结果与依据">
+                    <TextBox.InputBindings>
+                        <KeyBinding Key="Enter" Command="{Binding SearchCommand}" />
+                    </TextBox.InputBindings>
+                </TextBox>
+                <Button Command="{Binding SearchCommand}" Content="查询" MinWidth="72" MinHeight="28" Margin="8,0,0,0"
+                        IsEnabled="{Binding Availability.ListInputEnabled}" />
+            </StackPanel>
         </Border>
 
-        <!-- 中部列表区：三级分组/勾选/展开/右键归 T-15/T-16，此处骨架行承载扫描编排产物 -->
-        <ListBox ItemsSource="{Binding Classifications}"
-                 IsEnabled="{Binding Availability.ListInputEnabled}"
-                 Padding="8" HorizontalContentAlignment="Stretch">
-            <ListBox.ItemTemplate>
-                <DataTemplate>
-                    <Grid Margin="4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="{Binding Pid}" />
-                        <TextBlock Grid.Column="1" Text="{Binding Level}" Margin="12,0" />
-                        <TextBlock Grid.Column="2" Text="{Binding TreePrivateBytes}" Margin="12,0" />
-                    </Grid>
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
+        <!-- 中部：搜索结果 / 三级列表 / 白名单排除计数 -->
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- 搜索结果面板（有状态文案时呈现；R02“含不可见原因”） -->
+            <Border Grid.Row="0" Padding="12,4" Background="#FAFAFA">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Visible" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding SearchStatusText}" Value="">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <StackPanel>
+                    <TextBlock Text="{Binding SearchStatusText}" Foreground="Gray" />
+                    <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding SearchResults}" Margin="0,4,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="#DDD" BorderThickness="0,0,0,1" Padding="0,4">
+                                        <StackPanel>
+                                            <TextBlock>
+                                                <Run Text="{Binding Name, Mode=OneWay}" />
+                                                <Run Text=" (PID " />
+                                                <Run Text="{Binding Pid, Mode=OneWay}" />
+                                                <Run Text=") — " />
+                                                <Run Text="{Binding OutcomeText, Mode=OneWay}" FontWeight="Bold" />
+                                            </TextBlock>
+                                            <TextBlock Text="{Binding ReasonText}" Foreground="#555" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </StackPanel>
+            </Border>
+
+            <!-- 三级列表：组=Expander（🚫 默认折叠仅计数）；行=Expander 展开六要素（R02/F2） -->
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="8,4">
+                <ItemsControl ItemsSource="{Binding Groups}"
+                              IsEnabled="{Binding Availability.ListInputEnabled}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}" Margin="0,2">
+                                <Expander.Header>
+                                    <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold" />
+                                </Expander.Header>
+                                <ItemsControl ItemsSource="{Binding Rows}" Margin="16,0,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <!-- Tag 桥接根 VM 命令（ContextMenu 不在视觉树，经 PlacementTarget.Tag 可达）；
+                                                 菜单挂整行（PRD F4“列表项右键”）；🚫 行 CanWhitelist=false 菜单项自然禁用 -->
+                                            <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
+                                                      Margin="0,1" Background="#FBFBFB"
+                                                      Tag="{Binding DataContext.WhitelistCommand, RelativeSource={RelativeSource AncestorType=Window}}">
+                                                <Expander.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem Header="此进程永不推荐"
+                                                                  Command="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                  ToolTip="加入白名单后立即从推荐列表移除，此后不再推荐（同名进程一并排除）" />
+                                                    </ContextMenu>
+                                                </Expander.ContextMenu>
+                                                <Expander.Header>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                                                  IsEnabled="{Binding CanCheck}"
+                                                                  VerticalAlignment="Center" />
+                                                        <TextBlock Text="{Binding DisplayName}" Margin="6,0,0,0" />
+                                                        <TextBlock Text="{Binding TreeSummary}" Foreground="Gray"
+                                                                   Margin="12,0,0,0" />
+                                                    </StackPanel>
+                                                </Expander.Header>
+                                                <!-- 行详情：六要素（主进程/原因/来源/树合计/拉起提示 + 进程树层级） -->
+                                                <StackPanel Margin="28,4,0,8">
+                                                    <TextBlock Text="{Binding ReasonText}" TextWrapping="Wrap" />
+                                                    <TextBlock Margin="0,4,0,0">
+                                                        <Run Text="来源：" Foreground="Gray" />
+                                                        <Run Text="{Binding SourceText, Mode=OneWay}" />
+                                                    </TextBlock>
+                                                    <TextBlock Margin="0,2,0,0">
+                                                        <Run Text="{Binding TreeSummary, Mode=OneWay}" Foreground="Gray" />
+                                                    </TextBlock>
+                                                    <TextBlock Margin="0,2,0,0">
+                                                        <Run Text="拉起提示：" Foreground="Gray" />
+                                                        <Run Text="{Binding ReviveHint, Mode=OneWay}" />
+                                                    </TextBlock>
+                                                    <TextBlock Text="进程树：" Foreground="Gray" Margin="0,4,0,0" />
+                                                    <ItemsControl ItemsSource="{Binding TreeLines}"
+                                                                  FontFamily="Consolas" Margin="8,0,0,0" />
+                                                </StackPanel>
+                                            </Expander>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Expander>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <!-- 列表尾部：白名单排除计数（F2 折叠区语义；有排除项才呈现；完整白名单管理面板归 T-26） -->
+            <TextBlock Grid.Row="2" Margin="12,2">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Visible" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding WhitelistedExcludedCount}" Value="0">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+                <Run Text="因白名单排除 " Foreground="Gray" />
+                <Run Text="{Binding WhitelistedExcludedCount, Mode=OneWay}" Foreground="Gray" />
+                <Run Text=" 项" Foreground="Gray" />
+                <Run Text="（折叠不可见，可经搜索框查询）" Foreground="DarkGray" FontSize="11" />
+            </TextBlock>
+        </Grid>
     </DockPanel>
 </Window>

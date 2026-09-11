@@ -20,10 +20,12 @@ public class MainViewModelTests
     private static MainViewModel NewVm(FakeScanner? scanner = null, FakeRules? rules = null)
     {
         scanner ??= new FakeScanner();
+        rules ??= new FakeRules();
+        var whitelist = new FakeWhitelistStore();
         var coordinator = new ScanCoordinator(
-            scanner, rules ?? new FakeRules(), new StaticRulePackStore(),
-            new ClassificationContext(1, "u"), new WhitelistSnapshot([]));
-        return new MainViewModel(new UiStateMachine(), coordinator, scanner);
+            scanner, rules, new StaticRulePackStore(),
+            new ClassificationContext(1, "u"), () => whitelist.Snapshot());
+        return new MainViewModel(new UiStateMachine(), coordinator, scanner, rules, whitelist);
     }
 
     // —— AC-3：异步执行，调用线程不等扫描 ——

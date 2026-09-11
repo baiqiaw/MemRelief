@@ -26,15 +26,16 @@ public static class CompositionRoot
         // storage 模块：内置名单装载（T-13 真实实现）
         IRulePackStore rulePackStore = new RulePackStore();
 
+        // storage 模块：白名单存储（T-11 真实实现，T-15 接线——构造即装载，损坏自愈经 Recovery 通道提示）
+        IWhitelistStore whitelistStore = new WhitelistStore();
+
         // 编排方环境参数（契约：纯函数约束下环境信息一律参数注入，data-contracts §1.1）
         var context = new ClassificationContext(Environment.ProcessId, Environment.UserName);
 
-        // 白名单快照：storage 的白名单接线随 T-15/T-16/T-26 落地（WBS T-14 交付物行既有口径），
-        // 本包传空快照——这是既定范围边界，不含白名单假实现代码
-        var whitelist = new WhitelistSnapshot([]);
-
-        var coordinator = new ScanCoordinator(scanner, rules, rulePackStore, context, whitelist);
-        return new MainViewModel(new UiStateMachine(), coordinator, scanner);
+        // 白名单以提供者注入：每次判定取当前一致视图（加白即时重判生效，③.s4 裁决⑥）
+        var coordinator = new ScanCoordinator(
+            scanner, rules, rulePackStore, context, () => whitelistStore.Snapshot());
+        return new MainViewModel(new UiStateMachine(), coordinator, scanner, rules, whitelistStore);
     }
 
     /// <summary>构造主窗口（含 ViewModel 接线；STA 上下文调用）。</summary>

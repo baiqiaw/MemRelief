@@ -21,3 +21,25 @@ public sealed class RelayCommand(Action execute, Func<bool>? canExecute = null) 
 
     public void Execute(object? parameter) => execute();
 }
+
+/// <summary>带参薄命令封装（右键加白等行级操作；CanExecute 按参数与矩阵实时求值）。</summary>
+public sealed class RelayCommand<T>(Action<T?> execute, Func<T?, bool>? canExecute = null) : ICommand
+    where T : class
+{
+    public event EventHandler? CanExecuteChanged
+    {
+        add => CommandManager.RequerySuggested += value;
+        remove => CommandManager.RequerySuggested -= value;
+    }
+
+    public bool CanExecute(object? parameter) =>
+        canExecute?.Invoke(parameter as T) ?? true;
+
+    public void Execute(object? parameter)
+    {
+        if (parameter is T typed)
+        {
+            execute(typed);
+        }
+    }
+}

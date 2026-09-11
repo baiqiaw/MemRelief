@@ -26,10 +26,12 @@ public class StaResponsiveTests
             await gate.Task.ConfigureAwait(false);
             return FakeScanner.DefaultSnapshot;
         };
+        var whitelist = new FakeWhitelistStore();
+        var rules = new FakeRules();
         var coordinator = new ScanCoordinator(
-            scanner, new FakeRules(), new StaticRulePackStore(),
-            new ClassificationContext(1, "u"), new WhitelistSnapshot([]));
-        var vm = new MainViewModel(new UiStateMachine(), coordinator, scanner);
+            scanner, rules, new StaticRulePackStore(),
+            new ClassificationContext(1, "u"), () => whitelist.Snapshot());
+        var vm = new MainViewModel(new UiStateMachine(), coordinator, scanner, rules, whitelist);
 
         var staReady = new TaskCompletionSource();
         var probeRan = new TaskCompletionSource();
