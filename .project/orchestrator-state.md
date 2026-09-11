@@ -18,8 +18,8 @@ step_status:
   "③.s3 技术 POC": done                # 基线采样落档（071089c，baseline-sample.ps1）
   "③.s4 grilling 拷问": done           # 2026-09-08 补跑完成：两轮 10 项裁决 TL 逐条采纳，落 data-contracts §1.5/§2 与 issue #30
   "③.s5 排期": done                    # CPM 29.0d/P80 30.4（ef23a44），issue 已生成
-  "④.s1 派发": in_progress             # T-02/T-20 已签字关单（2026-09-09）；下一批候选：车道B T-03（#8，关键路径 3d）+ 车道A T-14（#13，组合根 3d），待 TL 确认
-worker_assignment: {}                  # T-02/T-20 已交付关单；新派发后写入
+  "④.s1 派发": in_progress             # T-02/T-20 签字关单（09-09）；T-03/T-14 双车道并行交付已合入 main（4ae8c2c / aad54ec，gate 合并态 4/4 全绿），AC 证据已回写，待 AC 签字关单；归属冲突待裁决 #33
+worker_assignment: {}                  # T-03/T-14 已交付合入；下一批派发后写入（T-04 #11 为后续候选）
 gate_status:
   "①立项": passed
   "②需求": passed
@@ -41,7 +41,7 @@ artifacts:
   kb_update: ""                        # ⑥ 回流落点
   gap_view: ""                         # 自举场景：无生成器文件，next-step 按 SKILL.md 自举流程内联派生
   gap_view_axis: "WBS 交付物（7 个，承诺分组维度）"
-last_updated: 2026-09-08
+last_updated: 2026-09-11
 ---
 
 # MemRelief 编排账本
