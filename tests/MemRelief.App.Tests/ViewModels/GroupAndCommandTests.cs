@@ -50,11 +50,7 @@ public class GroupAndCommandTests
         vm.SearchText = "b.exe";
 
         vm.SearchCommand.Execute(null);   // fire-and-forget；轮询等查询收口
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (rules.QueryCalls.Count == 0 && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(20);
-        }
+        await WaitUntil.ForAsync(() => rules.QueryCalls.Count > 0);
 
         Assert.Single(rules.QueryCalls);
     }
@@ -88,11 +84,7 @@ public class GroupAndCommandTests
         vm.WhitelistCommand.Execute(row);
 
         // fire-and-forget：等待重判收口（轮询至 Classify 第二次被调或超时）
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (rules.ClassifyCalls.Count < 2 && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(20);
-        }
+        await WaitUntil.ForAsync(() => rules.ClassifyCalls.Count >= 2);
 
         Assert.Equal(2, rules.ClassifyCalls.Count);
         Assert.Equal(1, whitelist.AddCount);

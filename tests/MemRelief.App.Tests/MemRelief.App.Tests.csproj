@@ -10,7 +10,7 @@
     <CollectCoverage>true</CollectCoverage>
     <Include>[MemRelief.App]*</Include>
     <!-- XAML 生成代码（g.cs）与仅含绑定接线的 code-behind 不入口径（无判定/映射逻辑可测） -->
-    <Exclude>[MemRelief.App]MemRelief.App.App,[MemRelief.App]MemRelief.App.MainWindow</Exclude>
+    <Exclude>[MemRelief.App]MemRelief.App.App,[MemRelief.App]MemRelief.App.MainWindow,[MemRelief.App]MemRelief.App.OverviewBar</Exclude>
   </PropertyGroup>
 
   <ItemGroup>

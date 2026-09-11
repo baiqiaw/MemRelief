@@ -3,18 +3,18 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:controls="clr-namespace:MemRelief.App"
         mc:Ignorable="d"
         Height="720" Width="1024">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
     </Window.Resources>
     <DockPanel>
-        <!-- 顶部概览条（R05；三数值精排与口径说明文案归 T-17，此处骨架绑定摘要） -->
-        <Border DockPanel.Dock="Top" Padding="12,8" Background="#F4F4F4">
-            <StackPanel>
-                <TextBlock Text="{Binding OverviewSummary}" FontSize="14" />
-                <TextBlock Text="{Binding StatusText}" Foreground="Gray" Margin="0,2,0,0" />
-            </StackPanel>
+        <!-- 顶部概览条（R05/T-17）：独立控件+独立子 VM（三数值+口径说明+三时点刷新， lanes 隔离承载）；
+             子 VM 注入归组合根接线（T-17 报告列管），未注入时控件自折叠，状态行照常呈现 -->
+        <controls:OverviewBar DockPanel.Dock="Top" x:Name="OverviewBarHost" />
+        <Border DockPanel.Dock="Top" Padding="12,4" Background="#F4F4F4">
+            <TextBlock Text="{Binding StatusText}" Foreground="Gray" FontSize="11" />
         </Border>
 
         <!-- 底部操作栏：开始扫描/一键释放/结果摘要；控件可用性=状态机矩阵唯一投影 -->

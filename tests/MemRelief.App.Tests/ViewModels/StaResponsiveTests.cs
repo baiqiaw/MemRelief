@@ -72,21 +72,12 @@ public class StaResponsiveTests
 
         // 放行采集：延续经 DispatcherSynchronizationContext 回 STA 线程完成状态更新
         gate.TrySetResult(FakeScanner.DefaultSnapshot);
-        await WaitUntilAsync(() => vm.StateMachine.State == AppState.ResultsShown, TimeSpan.FromSeconds(5));
+        await WaitUntil.ForAsync(() => vm.StateMachine.State == AppState.ResultsShown, TimeSpan.FromSeconds(5));
         Assert.Equal(AppState.ResultsShown, vm.StateMachine.State);
 
         // 收尾：关泵、收线程（避免测试进程残留活动 Dispatcher）
         dispatcher!.Invoke(() => Dispatcher.ExitAllFrames(), DispatcherPriority.Send);
         sta.Join(5000);
         Assert.False(sta.IsAlive);
-    }
-
-    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (!condition() && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(50).ConfigureAwait(false);
-        }
     }
 }
