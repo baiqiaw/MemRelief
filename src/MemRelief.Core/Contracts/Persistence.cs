@@ -23,6 +23,14 @@ public record RulePack(
     /// <summary>名单加载失败时编排方传入的空包：任一名单为空即按"保护性依据缺失"兜底（system 法-3）。</summary>
     public static RulePack Empty { get; } = new(
         Array.Empty<string>(), Array.Empty<string>(), Array.Empty<SecurityApp>(), Array.Empty<string>());
+
+    /// <summary>
+    /// 🚫保护名单命中谓词（穷举名精确匹配，OrdinalIgnoreCase）——全系统唯一保护名单匹配点
+    /// （rules/releaser 一律复用，禁止第二处 inline 实现；data-contracts §2 T-08 裁决④，
+    /// 与 <see cref="WhitelistSnapshot.ContainsName"/> 同款防线）。
+    /// </summary>
+    public bool ContainsProtectedProcess(string name) => ProtectedProcesses.Any(n =>
+        string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
 }
 
 /// <summary>四份内置名单（对应 <see cref="RulePack"/> 四数组；基线内容见 PRD 附录名单清单）。</summary>

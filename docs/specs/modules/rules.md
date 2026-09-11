@@ -43,5 +43,5 @@
 
 - **法**：**判定求值为纯函数**——同输入（ScanResult+WhitelistSnapshot+RulePack+ClassificationContext）必得同输出；不发起任何 I/O、不持有可变状态（M1 以 xUnit 驱动验收的直接依据）。
 - **法**：每条 `Classification` 的依据可完整追溯（口径表编号命中/未命中）——GWT R01 系列断言基础。
-- **法**：白名单进程完全排除；保护名单不可勾选；树合计内存唯一承载于 `Classification.TreePrivateBytes`（本模块计算，供排序/确认弹窗/释放量复用）。
+- **法**：白名单进程完全排除；保护名单不可勾选；`Classification.TreePrivateBytes` = 口径 #13 树合计（该进程全部后代私有提交，2026-09-08 T-08 裁决③收口：本模块计算，供排序/R02"树合计占用"展示/小体量降级判定；确认弹窗"将结束约 X MB"与释放量预估数据源为 `TreePlan.TreePrivateBytes`（将结束节点合计，见 [data-contracts §2 T-08 裁决③](../interfaces/data-contracts.md)），非本字段）。
 - **法**：名单匹配输入缺失（RulePack 加载失败经编排方传入空）时，按 system 法-3 保守兜底——相关保护性依据缺失的进程不进✅级。

@@ -51,8 +51,8 @@
 
 ### 1.3 释放域（releaser 提供）
 
-- **`ReleaseRequest`**：`ReleaseId`（Guid，幂等标识）、`SnapshotRef`、`SelectedPids`、`RequestedAtUtc`。
-- **`TreePlan`**：`Id`（=RootPid）、`RootPid`、`Nodes`、`SkippedNodes`（节点+原因）、`TreePrivateBytes`（确认弹窗与释放量数据源）。
+- **`ReleaseRequest`**：`ReleaseId`（Guid，幂等标识）、`SnapshotRef`（DateTime，= 目标 `ScanResult.TakenAtUtc`，声明勾选基于哪次扫描；§2 T-08 裁决①）、`SelectedPids`、`RequestedAtUtc`。
+- **`TreePlan`**：`Id`（=RootPid）、`RootPid`、`Nodes`（TreeNode：快照引用+Children 嵌套；先序扁平，`Nodes[0]`=根）、`SkippedNodes`（SkippedNode：节点+`TreeSkipReason`+人读 Detail）、`TreePrivateBytes`（确认弹窗与释放量数据源）——内层结构见 §2 T-08 裁决②③。
 - **`ReleaseItemResult`**：`Pid`、`Name`、`ExecutablePath`、`CommandLine`、`Outcome`（**8 值**：Released=优雅关闭成功 / ForceKilled=强制结束 / Exited=已自行退出 / IdentityChanged=进程已变化跳过 / NeedsElevation=需管理员 / Blocked=被拦截 / SkippedProtected / SkippedWhitelisted）、`Reason`、`ErrorCode`。
 - **`ReleaseReport`**：`ReleaseId`、`RequestedAtUtc`、`StartedAtUtc`、`FinishedAtUtc`、`Before`/`After`（MemoryOverview）、`Items`、`MainReleasedBytes`、`CheckReleasedBytes`（可负）、`LogPersisted`（bool?，日志写结果，null=未尝试）。落盘形态 = [PRD F6 JSONL](../../PRD.md)（时区/字段映射归 storage 落盘层）。
 
@@ -88,6 +88,8 @@
 > 2026-09-11（#33 裁决 a）：2026-09-08 ③.s4 段①⑧⑨ 的实现归属由 T-14 改派 **T-27**（新增 issue #34，T-14 AC 未含该三项、WBS 将自动重扫归 T-16，双源冲突经 TL 裁决收口）；① 格式细则裁决仍归 T-16 开工裁决，与 T-27 解析侧对接。
 >
 > 2026-09-11（T-04 开工裁决）：① 验签四分支 → `SignatureStatus` 六值映射口径：S_OK + 签名者显示名含 "microsoft"（OrdinalIgnoreCase）→ `Microsoft`；S_OK + 其余非空名 → `ValidNonMicrosoft`（`SignerName` 必填，仅此状态携带）；S_OK 但签名者显示名不可读（null/空白）→ `Unverifiable`（保守，rules 按受保护处理）；`TRUST_E_NOSIGNATURE` → `Unsigned`；确凿信任失败（TRUST_E_BAD_DIGEST/TRUST_E_FAIL[0x800B010B]/CERT_E_EXPIRED..REVOKED 连续段[含 TRUST_E_FAIL]/TRUST_E_SUBJECT_NOT_TRUSTED/CRYPT_E_REVOKED/NTE_BAD_SIGNATURE/CERT_E_WRONG_USAGE/TRUST_E_EXPLICIT_DISTRUST）→ `Invalid`；其余（Win32 文件不可达/提供方未知/策略阻止/未知门类）→ `Unverifiable`（保守默认，rules 按受保护处理）。② 系统目录核心命中（`IsSystemDirectory==true` 且非 UWP）不执行 WinVerifyTrust 直接 `Microsoft`（不入缓存，缓存仅存验证结论）；路径不可得 → `Unverifiable` 且不触验签（路径失败已由编号 100 记录）。③ 互操作经 CsWin32 正常生成（WinVerifyTrust/WINTRUST_DATA/WINTRUST_FILE_INFO，实测生成布局与 wintrust.h 一致，不入手写例外清单）；action GUID=WINTRUST_ACTION_GENERIC_VERIFY_V2{00AAC56B-CD44-11d0-8CC2-00C04FC295EE}（softpub.h）。④ v1 边界：仅内嵌签名（WTD_CHOICE_FILE，catalog 签名落 Unsigned）；吊销检查关闭（WTD_REVOKE_NONE，防 CRL 网络挂起击穿 ≤0.5s 预算）；签名者名取 X509Certificate.CreateFromSignedFile 第一签名；缓存键=完整路径+mtime（mtime 经 GetLastWriteTimeUtc：文件消失=1601 零值哨兵、读取异常=MinValue 哨兵，均独立成键；mtime 读取→验签→签名者名读取三次独立开文件，间隙文件替换存在单次结论错配窗口，替换后 mtime 变更即自然失效）。实现于 T-04。
+
+> 2026-09-11（T-08 开工裁决）：① `ReleaseRequest.SnapshotRef` 定形：`DateTime`（= 目标 `ScanResult.TakenAtUtc` 标识），声明勾选基于哪次扫描；`ScanResult` 本体经 Plan 参数传入（releaser.md §4.1 签名照录，"名单快照"= `WhitelistSnapshot` + `RulePack` 双参），不双通道携带；**Plan 入口校验 `SnapshotRef == scan.TakenAtUtc`，错配快速失败**（陈旧请求配新快照在 PID 复用场景可静默产出错价计划，cross-review 收口）。② `TreePlan` 内层结构：`TreeNode`（`ProcessSnapshot` 引用 + `Children` 嵌套）与扁平 `Nodes`（先序，`Nodes[0]`=根）并载——树层级唯一承载于计划（Execute 不得重建），扁平序供执行遍历；勾选根自身被保护集命中时 `Nodes` 为空（空计划：`TreePrivateBytes`=0，计划仍产出并计入"N 树"，T-16 呈现侧可按需过滤）；`SkippedNode` = 节点 + `TreeSkipReason`{ProtectedList, Whitelisted, SubtreeOfSkipped} + 人读 `Detail`。③ `TreePlan.TreePrivateBytes` = **将结束节点（非跳过）私有提交合计**——PRD F3-1 确认弹窗"将结束…合计约 X MB"与释放量预估数据源；与判定域 `Classification.TreePrivateBytes`（口径 #13 全后代合计，R02"树合计占用"展示）语义分立：R02 回答"树有多大"、确认弹窗回答"这次能换回多少"，无保护命中时两值相等，不构成第二事实源（rules.md §6 同步收口）。④ 跳过原因优先级：自身白名单 > 自身保护名单 > 子树连带（自身命中信息量大于连带）；白名单匹配复用 `ContainsName` 唯一匹配点，保护名单匹配唯一承载 `RulePack.ContainsProtectedProcess`（cross-review 收口，禁第二处 inline）；连带 Detail 引用根因祖先=最外层名单命中节点。⑤ 勾选根不在快照 → 快速失败（勾选须来自本次快照）；计划序 = 根 Pid 升序（确定性输出）；祖先与后代同勾选时各自成树、不去重（执行期去重归 T-09）。⑥ **保护名单不可用 fail-closed**：`ProtectedProcesses` 为空（含加载失败经编排方传入的 `RulePack.Empty`）→ Plan 抛 `InvalidOperationException` 拒绝规划（system 法-3 同向：保护证据为零不放行；⚠️ 项降级期仍可勾选，无人兜底即断链）；空白名单合法（用户态可空，与失败不可区分，v1 接受）。⑦ 规划侧纯函数约束（同输入必得同输出，零 I/O 零可变状态）为 T-08 落档约束，与 rules.md §6 判定域法条同源。实现于 T-08。
 
 ## 3. SLA / 非功能
 
