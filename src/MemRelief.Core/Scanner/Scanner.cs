@@ -12,6 +12,24 @@ public sealed class Scanner : IScanner
 {
     private readonly NativeProcessEnumerator _native = new();
     private readonly WmiCommandLineSource _wmi = new();
+    private readonly SignatureCache _signatureCache;
+    private readonly Func<string, SignatureVerdict>? _verifierOverride;
+
+    /// <summary>组合根默认构造；签名验证缓存随实例存活（scanner.md §6：唯一跨快照可变状态例外）。</summary>
+    public Scanner()
+        : this(new SignatureCache(), verifier: null)
+    {
+    }
+
+    /// <summary>测试注入构造：验签替身（internal，白盒测试承载接线断言）。</summary>
+    internal Scanner(SignatureCache signatureCache, Func<string, SignatureVerdict>? verifier)
+    {
+        _signatureCache = signatureCache;
+        _verifierOverride = verifier;
+    }
+
+    /// <summary>签名验证缓存（诊断/测试观测用）。</summary>
+    internal SignatureCache SignatureCache => _signatureCache;
 
     /// <summary>来源三通道时限（同 WMI 通道先例同级，data-contracts §2 T-01 裁决⑤）：ITaskService 经
     /// RPC 依赖 Task Scheduler 服务，服务挂起时 COM 调用可无限阻塞——超时按三通道全失败降级，
@@ -89,11 +107,64 @@ public sealed class Scanner : IScanner
         return new SourceInputs(runKeys, !runKeyOk, tasks, !taskOk, folders, !folderOk);
     }
 
-    /// <summary>候选验签（两阶段协议采集侧，口径#9 仅候选执行 + 路径+mtime 缓存）。</summary>
+    /// <summary>候选验签（两阶段协议采集侧，口径#9 仅候选执行 + 路径+mtime 缓存，issue #11/T-04）。
+    /// 仅改写候选行签名字段，其余行/失败记录/时长原样保留；编排方在 CandidateIds（rules）之后调用（scanner.md §4.3）。
+    /// 线程池执行不阻塞调用方（PRD §3.4 扫描异步）；快照为一次性产物，本方法不重试、不做存在性预检（时点口径）。</summary>
     public Task<ScanResult> CollectSignatures(ScanResult snapshot, ISet<int> candidatePids)
     {
-        // T-04 实装（issue #11）；在此之前显式失败，不静默返回未验签数据
-        throw new NotImplementedException("CollectSignatures 由 T-04 实装（issue #11）");
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(candidatePids);
+        return Task.Run(() => CollectSignaturesCore(snapshot, candidatePids));
+    }
+
+    private ScanResult CollectSignaturesCore(ScanResult snapshot, ISet<int> candidatePids)
+    {
+        if (candidatePids.Count == 0)
+        {
+            return snapshot;
+        }
+
+        var verify = _verifierOverride ?? SignatureVerifier.Verify;
+        var snapshots = snapshot.Snapshots;
+        var updated = new ProcessSnapshot[snapshots.Count];
+        for (var i = 0; i < snapshots.Count; i++)
+        {
+            var candidate = snapshots[i];
+            updated[i] = candidatePids.Contains(candidate.Pid)
+                ? candidate with { Signals = MergeSignatureSignals(candidate, verify) }
+                : candidate;
+        }
+        return snapshot with { Snapshots = updated };
+    }
+
+    /// <summary>单候选验签（口径#9 四分支）：系统目录核心命中不验签按微软（UWP WindowsApps 例外，v1.2 裁决）；
+    /// 路径不可得=验不了按受保护处理（路径失败已由编号 100 记录，不重复触验签）；
+    /// 其余经 WinVerifyTrust（路径+mtime 缓存；文件已消失 → mtime 1601 零值哨兵、读取异常 → MinValue 哨兵，
+    /// 均独立成键不污染正常条目，失败结论由缓存工厂兜底保守化）。单候选异常不击穿整批（逐候选隔离）。
+    /// 已知边界（v1 接受）：网络共享路径 mtime 读取可能按网络超时阻塞，无时限护栏（本地路径为主的目标机场景）。</summary>
+    private SignalSet MergeSignatureSignals(ProcessSnapshot candidate, Func<string, SignatureVerdict> verify)
+    {
+        var path = candidate.ExecutablePath;
+        if (path is null)
+        {
+            return candidate.Signals with { SignatureStatus = SignatureStatus.Unverifiable, SignerName = null };
+        }
+        if (candidate.Signals.IsSystemDirectory == true && !candidate.Signals.IsUwpPackage)
+        {
+            return candidate.Signals with { SignatureStatus = SignatureStatus.Microsoft, SignerName = null };
+        }
+        DateTime mtime;
+        try
+        {
+            mtime = File.GetLastWriteTimeUtc(path);
+        }
+        catch (Exception)
+        {
+            // mtime 不可得（属性受限/路径形态异常，非文件消失场景）：MinValue 哨兵独立成键，缓存仍生效
+            mtime = DateTime.MinValue;
+        }
+        var verdict = _signatureCache.GetOrAdd(path, mtime, verify);
+        return candidate.Signals with { SignatureStatus = verdict.Status, SignerName = verdict.SignerName };
     }
 
     /// <summary>内存概览三数值采样（NtQuerySystemInformation 优先、PDH 三计数器兜底、GlobalMemoryStatusEx 终底）。</summary>

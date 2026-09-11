@@ -76,14 +76,27 @@ public class ScannerIntegrationTests
     }
 
     [Fact]
-    public async Task 未实装方法_显式失败不静默()
+    public async Task 真机_候选验签回填()
     {
+        // T-04（issue #11）实装后替换原"未实装方法_显式失败不静默"占位钉子：真机快照 + 真实候选
+        // （取有路径的前 5 个进程）→ 每个候选获得非 NotCollected 的验签结论（结论值随机器签名分布而异）
         var scanner = new ScannerImpl();
         var snapshot = await scanner.TakeSnapshot();
 
-        // 同步抛出（非 faulted task），块体 lambda 返回 void 使 Throws 捕获同步异常
-        // SampleOverview 已于 T-05（issue #9）实装，退出本断言
-        Assert.Throws<NotImplementedException>(() => { _ = scanner.CollectSignatures(snapshot, new HashSet<int>()); });
+        var candidates = snapshot.Snapshots
+            .Where(s => s.ExecutablePath is not null)
+            .Take(5)
+            .Select(s => s.Pid)
+            .ToHashSet();
+        Assert.NotEmpty(candidates);
+
+        var result = await scanner.CollectSignatures(snapshot, candidates);
+
+        Assert.Equal(snapshot.ProcessCount, result.ProcessCount);
+        foreach (var s in result.Snapshots.Where(s => candidates.Contains(s.Pid)))
+        {
+            Assert.NotEqual(SignatureStatus.NotCollected, s.Signals.SignatureStatus);
+        }
     }
 }
 

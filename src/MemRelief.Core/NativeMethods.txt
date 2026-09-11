@@ -1,4 +1,4 @@
-// CsWin32 生成清单（system-spec §4：Win32 经 CsWin32；手写例外清单以 system-spec §4 第④项为唯一事实源：NtQuery/PDH/WMI/窗口枚举+DWM/TCP 表/服务枚举不入此清单）
+// CsWin32 生成清单（system-spec §4：Win32 经 CsWin32；手写例外清单以 system-spec §4 第④项为唯一事实源，本清单不含例外项）
 CreateToolhelp32Snapshot
 Process32FirstW
 Process32NextW
@@ -16,3 +16,6 @@ GlobalMemoryStatusEx
 MEMORYSTATUSEX
 GetLongPathName
 GetShortPathName
+WinVerifyTrust
+WINTRUST_DATA
+WINTRUST_FILE_INFO
