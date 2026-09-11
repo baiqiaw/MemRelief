@@ -18,8 +18,8 @@ step_status:
   "③.s3 技术 POC": done                # 基线采样落档（071089c，baseline-sample.ps1）
   "③.s4 grilling 拷问": done           # 2026-09-08 补跑完成：两轮 10 项裁决 TL 逐条采纳，落 data-contracts §1.5/§2 与 issue #30
   "③.s5 排期": done                    # CPM 29.0d/P80 30.4（ef23a44），issue 已生成
-  "④.s1 派发": in_progress             # T-02/T-03/T-14/T-20 签字关单；T-04/T-08 双车道交付已合入 main（69cd634 / f538d28，gate 合并态全绿 Core 304+App 66），AC 证据已回写，待 AC 签字关单；边界登记 #35/#36
-worker_assignment: {}                  # 下一批派发后写入；候选：T-09（#17，T-08 前置已就绪）+ T-11（#14，T-18 已关单），releaser/storage 两域无写冲突，待 TL 确认
+  "④.s1 派发": in_progress             # 关单累计：T-02/T-03/T-04/T-08/T-11/T-14/T-20；T-09/T-11 双车道交付已合入 main（8cf3eb5 / ae960e1，gate 合并态全绿 Core 374 @97.42% + App 66），AC 证据已回写，待 AC 签字关单；边界登记 #37
+worker_assignment: {}                  # 下一批派发后写入；候选：T-15（#16，UI 域，T-14/T-11 前置已关单）+ T-12（#12，storage 域，T-18 已关单），无写冲突；T-10（#18）涉编排层与 T-15 有 App 写冲突风险排后，待 TL 确认
 gate_status:
   "①立项": passed
   "②需求": passed
