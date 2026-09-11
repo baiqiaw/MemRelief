@@ -69,9 +69,8 @@ public sealed class WhitelistStore : IWhitelistStore
         (_entries, Recovery) = Load();
     }
 
-    /// <summary>默认用户数据目录（internal 供测试锚定断言）。</summary>
-    internal static string DefaultDataDirectory() =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), ProductInfo.Name);
+    /// <summary>默认用户数据目录（internal 供测试锚定断言；单点实现见 StorageShared）。</summary>
+    internal static string DefaultDataDirectory() => StorageShared.DefaultDataDirectory();
 
     public WhitelistSnapshot Snapshot()
     {
@@ -169,7 +168,7 @@ public sealed class WhitelistStore : IWhitelistStore
                 ? TryParseEntry(element)
                 : null;
             if (entry is null || string.IsNullOrWhiteSpace(entry.Name)) { badCount++; continue; }
-            entries.Add(entry with { Name = entry.Name.Trim(), AddedAtUtc = NormalizeUtc(entry.AddedAtUtc) });
+            entries.Add(entry with { Name = entry.Name.Trim(), AddedAtUtc = StorageShared.NormalizeUtc(entry.AddedAtUtc) });
         }
         return entries;
     }
@@ -222,9 +221,4 @@ public sealed class WhitelistStore : IWhitelistStore
             throw;
         }
     }
-
-    private static DateTime NormalizeUtc(DateTime value) =>
-        value.Kind == DateTimeKind.Local
-            ? value.ToUniversalTime()
-            : DateTime.SpecifyKind(value, DateTimeKind.Utc);
 }
