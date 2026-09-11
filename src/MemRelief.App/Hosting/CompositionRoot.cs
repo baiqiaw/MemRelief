@@ -17,7 +17,7 @@ public static class CompositionRoot
     /// <summary>构造扫描/判定链服务对象图（不含窗口，供非 STA 上下文测试）。</summary>
     public static MainViewModel CreateViewModel()
     {
-        // scanner 模块：快照/验签/概览（T-01/T-02/T-05；CollectSignatures 待 T-04 实装，接口已冻结）
+        // scanner 模块：快照/验签/概览（T-01/T-02/T-04/T-05，接口已冻结）
         IScanner scanner = new Scanner();
 
         // rules 模块：三级判定（T-06/T-07，纯函数）
