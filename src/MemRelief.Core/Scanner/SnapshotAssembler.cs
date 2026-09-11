@@ -4,8 +4,9 @@ namespace MemRelief.Core.Scanner;
 
 /// <summary>
 /// 快照装配（纯函数）：原始行 → ScanResult。
-/// 字段映射、失败→SignalFailure、OrphanHint 解析（口径#1 数据侧）、Pid 唯一键校验均在此；
-/// 零 I/O 零状态，同输入同输出。裁决依据 data-contracts §2 T-01 裁决记。
+/// 字段映射、失败→SignalFailure、OrphanHint 解析（口径#1 数据侧）、同目录旁证归组（口径#3 数据侧，T-03）、
+/// 来源信号装配（口径#12/#15，T-03）、Pid 唯一键校验均在此；零 I/O 零状态，同输入同输出。
+/// 裁决依据 data-contracts §2 T-01/T-02 裁决记。
 /// </summary>
 public static class SnapshotAssembler
 {
@@ -44,6 +45,7 @@ public static class SnapshotAssembler
             throw new InvalidOperationException("Pid 唯一键违约定：快照内出现重复 Pid，本次扫描失败");
         }
 
+        ResolveSameDirAliveGroups(snapshots);
         ResolveOrphanHints(snapshots);
 
         return new ScanResult(
@@ -72,6 +74,12 @@ public static class SnapshotAssembler
         if (inputs.DirectoryResolveFailed)
         {
             failures.Add(new SignalFailure(10, null, FailureKind.CollectorFailed, "系统目录清单解析失败（%windir%/Known Folder）"));
+        }
+
+        // 来源通道（T-03，口径 #12/#15）：单类失败逐类登记，全局语义=全量进程不进✅（PRD 口径表 #12 兜底）
+        if (inputs.Sources is { } sources)
+        {
+            AddSourceFailures(sources, failures);
         }
     }
 
@@ -129,6 +137,15 @@ public static class SnapshotAssembler
             isUwp = inputs.UwpPackagePrefix is not null && SignalRules.PathMatchesPrefix(path, inputs.UwpPackagePrefix);
         }
 
+        // 口径 #12/#15 来源匹配（T-03）：Sources=null=未采集（T-02 调用方兼容），字段保持契约默认；
+        // 服务类来源条目复用 T-02 服务通道（口径 #12"服务：同 #8，条目名=服务名"）
+        IReadOnlyList<SourceEntry> sourceEntries = Array.Empty<SourceEntry>();
+        bool? wouldRevive = null;
+        if (inputs.Sources is { } sources)
+        {
+            (sourceEntries, wouldRevive) = SourceMatcher.Match(path, serviceName, sources);
+        }
+
         return new SignalSet
         {
             HasVisibleWindow = hasVisibleWindow,
@@ -138,7 +155,28 @@ public static class SnapshotAssembler
             ServiceName = serviceName,
             ServiceRestartOnFailure = restartOnFailure,
             IsSystemDirectory = isSystemDirectory,
+            SourceEntries = sourceEntries,
+            ScheduledTaskWouldRevive = wouldRevive,
         };
+    }
+
+    /// <summary>来源通道失败旗标 → SignalFailure #12/#15 全局登记（配对不变量，T-03）。</summary>
+    private static void AddSourceFailures(SourceInputs sources, List<SignalFailure> failures)
+    {
+        if (sources.RunKeyFailed)
+        {
+            failures.Add(new SignalFailure(12, null, FailureKind.CollectorFailed, "Run 键/StartupApproved 采集失败（注册表通道）"));
+        }
+        if (sources.ScheduledTaskFailed)
+        {
+            // #12（来源采集）与 #15（拉起评估）共用 ITaskService 通道：失败须双口径登记
+            failures.Add(new SignalFailure(12, null, FailureKind.CollectorFailed, "计划任务来源采集失败（ITaskService 通道）"));
+            failures.Add(new SignalFailure(15, null, FailureKind.CollectorFailed, "计划任务拉起信号不可评估（ITaskService 通道失败）"));
+        }
+        if (sources.StartupFolderFailed)
+        {
+            failures.Add(new SignalFailure(12, null, FailureKind.CollectorFailed, "启动文件夹采集失败（文件系统/IShellLink 通道）"));
+        }
     }
 
     private static ProcessSnapshot ToSnapshot(RawProcess row)
@@ -195,6 +233,57 @@ public static class SnapshotAssembler
         }
         // CommandLine 无失败记录通道（契约 §1.1 v1：仅字段级 null 表达）
     }
+
+    /// <summary>
+    /// 口径 #3 数据侧（WBS T-03）：同归一化目录的其他存活进程（不含目标自身；孤儿群互斥计算归 rules）。
+    /// 归组键 = SignalRules.DirectoryOf（OrdinalIgnoreCase 字典，首趟建 pid→目录索引，次趟查表回填）；
+    /// 路径不可得（打开被拒/消失/不可读）行不参与归组、亦不获得旁证（目录未知，无法构成"同目录在用"依据）。
+    /// </summary>
+    private static void ResolveSameDirAliveGroups(List<ProcessSnapshot> snapshots)
+    {
+        var directoryByPid = new Dictionary<int, string>(snapshots.Count);
+        var pidsByDirectory = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var snapshot in snapshots)
+        {
+            if (snapshot.ExecutablePath is not { } path)
+            {
+                continue;
+            }
+            var directory = DirectoryKey(path);
+            if (directory.Length == 0)
+            {
+                continue;
+            }
+            directoryByPid[snapshot.Pid] = directory;
+            if (!pidsByDirectory.TryGetValue(directory, out var group))
+            {
+                group = new List<int>();
+                pidsByDirectory[directory] = group;
+            }
+            group.Add(snapshot.Pid);
+        }
+
+        if (directoryByPid.Count == 0)
+        {
+            return;
+        }
+        for (var i = 0; i < snapshots.Count; i++)
+        {
+            var snapshot = snapshots[i];
+            if (!directoryByPid.TryGetValue(snapshot.Pid, out var directory))
+            {
+                continue;
+            }
+            var others = pidsByDirectory[directory]
+                .Where(pid => pid != snapshot.Pid)
+                .ToHashSet();
+            snapshots[i] = snapshot with { Signals = snapshot.Signals with { SameDirAlivePids = others } };
+        }
+    }
+
+    /// <summary>归组键：归一化后的目录段（归一化规则单点在 SignalRules）。</summary>
+    private static string DirectoryKey(string path) =>
+        SignalRules.DirectoryOf(SignalRules.NormalizeExecutablePath(path) ?? path);
 
     /// <summary>口径#1 数据侧：ParentDead/PidReused 解析（PRD：父 pid 无对应进程→孤儿；父创建时间晚于本进程→PID 复用孤儿）。</summary>
     private static void ResolveOrphanHints(List<ProcessSnapshot> snapshots)

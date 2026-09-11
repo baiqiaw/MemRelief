@@ -1,10 +1,11 @@
 namespace MemRelief.Core.Scanner;
 
 /// <summary>
-/// 活动信号纯判定面（T-02，五口径 #4/#6/#7/#8/#10 的可单测部分）：
-/// 窗口可见性谓词、TCP 状态过滤与表行解析、系统目录/UWP 前缀匹配、服务失败恢复动作解析、多服务归并。
+/// 信号纯判定面（T-02 活动信号五口径 #4/#6/#7/#8/#10 + T-03 来源/旁证增量 #3/#12）：
+/// 窗口可见性谓词、TCP 状态过滤与表行解析、系统目录/UWP 前缀匹配、服务失败恢复动作解析、多服务归并、
+/// 可执行路径归一/目录归组/精确相等（#3/#12 共用）、StartupApproved 禁用态字节判读。
 /// 零 I/O 零状态；手写结构偏移的解析函数收口于此（构造缓冲单测承载，AC③"构造数据对测"）。
-/// 口径出处：PRD 判定信号技术口径表 #4/#6/#7/#8/#10；消费语义见 RulesEngine（null=保守兜底）。
+/// 口径出处：PRD 判定信号技术口径表；消费语义见 RulesEngine（null=保守兜底）。
 /// </summary>
 public static class SignalRules
 {
@@ -17,6 +18,76 @@ public static class SignalRules
     /// <summary>口径 #4 谓词：计入 WS_VISIBLE、非 WS_EX_TOOLWINDOW、非 DWM cloaked（属主过滤在枚举侧按 pid 完成）。</summary>
     public static bool IsVisibleCandidate(long style, long exStyle, bool cloaked) =>
         (style & WsVisible) != 0 && (exStyle & WsExToolWindow) == 0 && !cloaked;
+
+    /// <summary>
+    /// 可执行路径归一（口径 #3 目录归组与 #12 精确匹配共用，WBS T-03「路径归一化在采集侧完成」）：
+    /// 去首尾空白与成对包裹引号、折叠连续分隔符（任务动作/注册表值常见噪声，保留 UNC 前导双反斜杠）；
+    /// 空/纯空白 → null（不可归一路径）。大小写不敏感比较由调用方以 OrdinalIgnoreCase 承载
+    /// （Windows 路径大小写不敏感）；不做文件系统存在性判定（只读采集、保持纯函数）。
+    /// </summary>
+    public static string? NormalizeExecutablePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        var trimmed = path.Trim();
+        if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[^1] == '"')
+        {
+            trimmed = trimmed[1..^1].Trim();
+        }
+        trimmed = CollapseSeparators(trimmed);
+        return trimmed.Length == 0 ? null : trimmed;
+    }
+
+    /// <summary>折叠连续路径分隔符（"a\\\\b" → "a\b"，混用 '/' 同理）；UNC 前导 "\\\\server\share" 双反斜杠保留。</summary>
+    internal static string CollapseSeparators(string path)
+    {
+        var builder = new System.Text.StringBuilder(path.Length);
+        var start = 0;
+        if (path.StartsWith(@"\\", StringComparison.Ordinal))
+        {
+            builder.Append(@"\\");   // UNC 前导语义保留
+            start = 2;
+        }
+        for (var i = start; i < path.Length; i++)
+        {
+            var c = path[i];
+            builder.Append(c);
+            if (c is '\\' or '/')
+            {
+                while (i + 1 < path.Length && (path[i + 1] is '\\' or '/'))
+                {
+                    i++;
+                }
+            }
+        }
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// 可执行路径的目录段（口径 #3 归组键）：最后分隔符之前的前缀（"C:\app\app.exe" → "C:\app"）。
+    /// 无分隔符（裸文件名，归一化的进程路径不出现此形态）→ 空串，调用方不归组。
+    /// </summary>
+    public static string DirectoryOf(string path)
+    {
+        var back = path.LastIndexOf('\\');
+        var forward = path.LastIndexOf('/');
+        var last = Math.Max(back, forward);
+        return last > 0 ? path[..last] : string.Empty;
+    }
+
+    /// <summary>归一化后精确相等（口径 #12「可执行路径精确匹配，不按进程名」）：OrdinalIgnoreCase。</summary>
+    public static bool PathExactEquals(string? left, string? right) =>
+        string.Equals(NormalizeExecutablePath(left), NormalizeExecutablePath(right), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// StartupApproved 禁用态判读（纯函数，口径 #12）：值数据首字节奇数 = 禁用（实测形态 0x03 禁用 /
+    /// 0x02、0x06 启用，启用值随时间戳低位变化）；键缺失/值缺失/非二进制 = 启用（StartupApproved 仅记录
+    /// 被用户禁用过的条目）。
+    /// </summary>
+    public static bool IsDisabledApprovedValue(byte[]? data) =>
+        data is { Length: > 0 } && (data[0] & 0x01) != 0;
 
     /// <summary>口径 #6 过滤：仅 ESTABLISHED 计"活跃"（LISTEN/TIME_WAIT/SYN_* 不计；UDP 无连接语义不采集）。</summary>
     public static bool IsEstablished(int tcpState) => tcpState == TcpStateEstablished;

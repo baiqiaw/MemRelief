@@ -5,10 +5,11 @@ namespace MemRelief.Core.Scanner;
 public sealed record ServiceSignalInfo(string Name, bool? RestartOnFailure);
 
 /// <summary>
-/// 活动信号采集输入（scanner 通道层 → SnapshotAssembler 纯合并层的唯一数据面，T-02）。
+/// 活动信号采集输入（scanner 通道层 → SnapshotAssembler 纯合并层的唯一数据面，T-02；T-03 增来源通道）。
 /// 五口径通道各自的"全局失败"由 Assemble 统一登记（每口径一条）；per-pid 字典：
 /// VisiblePids 仅含存在可见窗口的 pid（缺席=false）；CpuDeltas 恒全量填充（值 null=窗口内退出/不可得，
 /// 由合并层配 SignalFailure #7——"缺键"形态生产不可达）。
+/// Sources=null=来源未采集（T-02 既有调用方兼容）；非 null 时按口径 #12/#15 装配（含失败旗标→全局 SignalFailure）。
 /// </summary>
 public sealed record SignalInputs(
     IReadOnlySet<int> VisiblePids,
@@ -20,4 +21,5 @@ public sealed record SignalInputs(
     IReadOnlyList<string> SystemDirectoryPrefixes,
     string? UwpPackagePrefix,
     bool DirectoryResolveFailed,
-    IReadOnlyDictionary<int, double?> CpuDeltas);
+    IReadOnlyDictionary<int, double?> CpuDeltas,
+    SourceInputs? Sources = null);

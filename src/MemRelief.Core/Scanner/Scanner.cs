@@ -13,18 +13,26 @@ public sealed class Scanner : IScanner
     private readonly NativeProcessEnumerator _native = new();
     private readonly WmiCommandLineSource _wmi = new();
 
-    /// <summary>采集快照（口径#1/#13 数据侧 + 基础字段 + T-02 活动信号五通道 + 失败记录框架）。</summary>
+    /// <summary>来源三通道时限（同 WMI 通道先例同级，data-contracts §2 T-01 裁决⑤）：ITaskService 经
+    /// RPC 依赖 Task Scheduler 服务，服务挂起时 COM 调用可无限阻塞——超时按三通道全失败降级，
+    /// 经 SignalFailure #12/#15 链承接（保守方向），防击穿采集段 ≤2.0s 硬预算。</summary>
+    internal static readonly TimeSpan SourceChannelTimeout = TimeSpan.FromMilliseconds(1500);
+
+    /// <summary>采集快照（口径#1/#13 数据侧 + 基础字段 + T-02 活动信号五通道 + T-03 来源三通道 + 失败记录框架）。</summary>
     public async Task<ScanResult> TakeSnapshot()
     {
         var stopwatch = Stopwatch.StartNew();
         // WMI 与原生枚举重叠（WMI 冷启动 COM 初始化较慢）；通道超时/失败→命令行全量 null（裁决⑤）
         var commandLinesTask = _wmi.QueryCommandLinesAsync();
+        // 来源三通道与原生枚举重叠（T-03）：注册表/ITaskService COM/文件系统互不相依，单通道失败独立降级
+        var sourcesTask = CollectSourceInputsAsync();
 
         // CPU 差分窗口起点随枚举捕获（grilling 裁决②：窗口=TakeSnapshot 采集段）
         var (rows, takenAtUtc) = _native.Enumerate();
 
-        // 活动信号四通道（窗口/TCP/服务/目录解析）+ CPU 差分终点二次采样，均在采集段内完成
-        var signals = CollectSignals(rows);
+        var sources = await sourcesTask.ConfigureAwait(false);
+        // 活动信号四通道（窗口/TCP/服务/目录解析）+ 来源通道 + CPU 差分终点二次采样，均在采集段内完成
+        var signals = CollectSignals(rows, sources);
 
         var commandLines = await commandLinesTask.ConfigureAwait(false);
         var merged = MergeCommandLines(rows, commandLines);
@@ -34,7 +42,7 @@ public sealed class Scanner : IScanner
     }
 
     /// <summary>活动信号采集编排（T-02）：四通道互不相依顺序执行 + CPU 终点二次采样；单通道失败以全局 failure 降级不击穿。</summary>
-    private SignalInputs CollectSignals(IReadOnlyList<RawProcess> rows)
+    private SignalInputs CollectSignals(IReadOnlyList<RawProcess> rows, SourceInputs sources)
     {
         var pids = new HashSet<int>(rows.Select(r => r.Pid));
         var windowOk = WindowProbe.TryCollectVisiblePids(pids, out var visible);
@@ -48,7 +56,37 @@ public sealed class Scanner : IScanner
             tcp, !tcpOk,
             services, !serviceOk,
             prefixes, uwpPrefix, directoryFailed,
-            cpuDeltas);
+            cpuDeltas,
+            Sources: sources);
+    }
+
+    /// <summary>来源三通道采集（T-03，口径 #12/#15）：互不相依，各通道失败独立降级（Try* 收口 false）；
+    /// 整体施加通道时限防 COM/RPC 挂起（超时=三通道全失败，保守降级）。</summary>
+    private static async Task<SourceInputs> CollectSourceInputsAsync()
+    {
+        var collect = Task.Run(CollectSourceInputs);
+        try
+        {
+            return await collect.WaitAsync(SourceChannelTimeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // 挂起型失败：弃任务保底观察异常防 UnobservedTaskException，三旗标走既有失败链
+            _ = collect.ContinueWith(static t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+            return new SourceInputs(
+                Array.Empty<RunKeySource>(), RunKeyFailed: true,
+                Array.Empty<ScheduledTaskSource>(), ScheduledTaskFailed: true,
+                Array.Empty<StartupFolderSource>(), StartupFolderFailed: true);
+        }
+    }
+
+    /// <summary>来源三通道采集（T-03，口径 #12/#15）：互不相依，各通道失败独立降级（Try* 收口 false）。</summary>
+    private static SourceInputs CollectSourceInputs()
+    {
+        var runKeyOk = RunKeySourceProbe.TryCollect(out var runKeys);
+        var taskOk = ScheduledTaskSourceProbe.TryCollect(out var tasks);
+        var folderOk = StartupFolderSourceProbe.TryCollect(out var folders);
+        return new SourceInputs(runKeys, !runKeyOk, tasks, !taskOk, folders, !folderOk);
     }
 
     /// <summary>候选验签（两阶段协议采集侧，口径#9 仅候选执行 + 路径+mtime 缓存）。</summary>
