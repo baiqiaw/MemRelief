@@ -35,6 +35,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly ScanCoordinator _coordinator;
     private readonly IRulesEngine _rules;
     private readonly IWhitelistStore _whitelistStore;
+    private readonly IRulePackStore? _rulePackStore;
     private readonly IReleaser? _releaser;
     private readonly IReleaseLogStore? _logStore;
     private readonly IReleaseConfirmDialog? _confirmDialog;
@@ -58,6 +59,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private ReleaseReport? _lastReleaseReport;
     private string? _releaseFailedMessage;
     private bool _isWhitelistPanelOpen;
+    private bool _isBuiltinListsPanelOpen;
+    private IReadOnlyList<BuiltinListSection> _builtinListSections = Array.Empty<BuiltinListSection>();
     private IReadOnlyList<WhitelistEntryRow> _whitelistEntries = [];
     private IReadOnlyList<WhitelistedExcludedRow> _whitelistedExcludedRows = [];
 
@@ -91,12 +94,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Action<Action>? marshal = null,
         IReadOnlyList<RestartFailedItem>? restartFailedItems = null,
         Action? shutdown = null,
-        Action<string>? shellOpen = null)
+        Action<string>? shellOpen = null,
+        IRulePackStore? rulePackStore = null)
     {
         StateMachine = stateMachine;
         _coordinator = coordinator;
         _rules = rules;
         _whitelistStore = whitelistStore;
+        _rulePackStore = rulePackStore;
         _releaser = releaser;
         _logStore = logStore;
         _confirmDialog = confirmDialog;
@@ -128,6 +133,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             RestartElevated,
             () => CanRestartElevated && _restarter is not null);
         ToggleWhitelistPanelCommand = new RelayCommand(ToggleWhitelistPanel);
+        ToggleBuiltinListsCommand = new RelayCommand(
+            ToggleBuiltinListsPanel,
+            () => _rulePackStore is not null);
         RemoveWhitelistEntryCommand = new RelayCommand<object>(
             o => _ = RemoveWhitelistEntryAsync(o as WhitelistEntryRow),
             o => o is WhitelistEntryRow);
@@ -272,6 +280,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>面板非空标记（XAML 空态文案切换绑定用）。</summary>
     public bool HasWhitelistEntries => _whitelistEntries.Count > 0;
 
+    /// <summary>内置名单面板展开态（与白名单面板同款：不触判定链，任意五态可用）。</summary>
+    public bool IsBuiltinListsPanelOpen
+    {
+        get => _isBuiltinListsPanelOpen;
+        private set => SetField(ref _isBuiltinListsPanelOpen, value);
+    }
+
+    /// <summary>内置名单四节（打开时从名单库全量装载；只读展示，名单迭代走资源文件+附录登记）。</summary>
+    public IReadOnlyList<BuiltinListSection> BuiltinListSections
+    {
+        get => _builtinListSections;
+        private set => SetField(ref _builtinListSections, value);
+    }
+
     /// <summary>最近一次释放结果报告（呈现经 <see cref="ReleaseReportText"/>；回填 LogPersisted 时换实例）。</summary>
     public ReleaseReport? LastReleaseReport
     {
@@ -325,6 +347,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     /// <summary>白名单管理面板开关（T-26，F4 工具栏入口；不触判定链，任意态可用）。</summary>
     public ICommand ToggleWhitelistPanelCommand { get; }
+
+    /// <summary>内置名单面板开关（T-28 陪伴功能；名单库未注入时不可用）。</summary>
+    public ICommand ToggleBuiltinListsCommand { get; }
 
     /// <summary>逐项移除命令（T-26，F4；参数=面板条目行）。</summary>
     public ICommand RemoveWhitelistEntryCommand { get; }
@@ -637,6 +662,36 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (IsWhitelistPanelOpen)
         {
             TryRefreshWhitelistPanel();
+        }
+    }
+
+    /// <summary>
+    /// 内置名单面板开关（T-28 陪伴功能，issue #46 反馈）：每次打开从名单库全量装载（实时反映资源文件迭代）。
+    /// 只读展示——名单迭代走资源文件+PRD 附录登记（PRD 附录「名单清单同机制维护」），面板不提供编辑。
+    /// </summary>
+    public void ToggleBuiltinListsPanel()
+    {
+        if (_rulePackStore is null)
+        {
+            return;   // 名单库未注入：面板不可用（与命令谓词同口径；直调防御）
+        }
+
+        IsBuiltinListsPanelOpen = !IsBuiltinListsPanelOpen;
+        if (IsBuiltinListsPanelOpen)
+        {
+            var pack = _rulePackStore!.LoadRulePack().Pack;
+            static string Join(IReadOnlyList<string> items) => items.Count == 0 ? "（空）" : string.Join("、", items);
+            BuiltinListSections =
+            [
+                new("🚫 保护名单", "命中 → 🚫 不可勾选（系统关键进程与用户核心工作进程）",
+                    Join(pack.ProtectedProcesses)),
+                new("⚠️ 常驻应用", "命中 → ⚠️ 疑似常驻应用（进程名精确匹配）",
+                    Join(pack.ResidentApps)),
+                new("✅ 残留模式库", "命中 → ✅ 依据（并豁免小体量降级；进程名/路径子串匹配）",
+                    Join(pack.ResidualPatterns)),
+                new("🚫 安全软件", "命中 → 🚫（进程名 + 签名方双通道）",
+                    Join(pack.SecurityApps.Select(a => a.Signer is null ? a.Name : $"{a.Name}（签名方：{a.Signer}）").ToList())),
+            ];
         }
     }
 
@@ -1107,3 +1162,6 @@ public sealed record WhitelistEntryRow(string Name, string AddedAtText, string P
 
 /// <summary>折叠区排除项行（T-26，F2"因白名单排除 N 项"展开清单：PID+进程名）。</summary>
 public sealed record WhitelistedExcludedRow(int Pid, string Name);
+
+/// <summary>内置名单只读展示节（标题+命中效果说明+条目清单文本）。</summary>
+public sealed record BuiltinListSection(string Title, string EffectText, string ItemsText);

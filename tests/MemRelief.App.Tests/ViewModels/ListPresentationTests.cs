@@ -57,7 +57,8 @@ public class ListPresentationTests
 
     internal static (MainViewModel Vm, FakeScanner Scanner, FakeRules Rules, FakeWhitelistStore Whitelist) NewVm(
         FakeScanner? scanner = null, FakeRules? rules = null, FakeWhitelistStore? whitelist = null,
-        IReleaseLogStore? logStore = null, Action<string>? shellOpen = null)
+        IReleaseLogStore? logStore = null, Action<string>? shellOpen = null,
+        IRulePackStore? rulePackStore = null)
     {
         scanner ??= new FakeScanner { OnTakeSnapshot = () => Task.FromResult(NewSnapshot()) };
         rules ??= new FakeRules { Result = NewClassifications() };
@@ -66,7 +67,7 @@ public class ListPresentationTests
             scanner, rules, new StaticRulePackStore(),
             new ClassificationContext(1, "u"), () => whitelist.Snapshot());
         var vm = new MainViewModel(new UiStateMachine(), coordinator, rules, whitelist,
-            logStore: logStore, shellOpen: shellOpen);
+            logStore: logStore, shellOpen: shellOpen, rulePackStore: rulePackStore);
         return (vm, scanner, rules, whitelist);
     }
 
@@ -442,7 +443,39 @@ public class ListPresentationTests
         Assert.Equal(new[] { 21, 100 }, vm.Groups[0].Rows.Where(r => r.IsChecked).Select(r => r.Pid));
     }
 
-    // 组标题合计去重：父与子同落一组时，父行树合计已含子树，仅计父自身提交（防止重复计数高估）
+    // —— T-28 内置名单面板（issue #46 反馈：名单可见性）——
+
+    [Fact]
+    public async Task 打开内置名单面板_装载四节并含名单内容()
+    {
+        var pack = new RulePack(
+            ResidualPatterns: ["crashpad"],
+            ResidentApps: ["Weixin.exe"],
+            SecurityApps: [new SecurityApp("MsMpEng.exe")],
+            ProtectedProcesses: ["claude.exe", "svchost.exe"]);
+        var (vm, _, _, _) = NewVm(rulePackStore: new StaticRulePackStore(pack));
+        vm.ToggleBuiltinListsPanel();
+
+        Assert.True(vm.IsBuiltinListsPanelOpen);
+        Assert.Equal(4, vm.BuiltinListSections.Count);
+        Assert.Contains(vm.BuiltinListSections, s => s.Title.Contains("保护名单") && s.ItemsText.Contains("claude.exe"));
+        Assert.Contains(vm.BuiltinListSections, s => s.Title.Contains("常驻应用") && s.ItemsText.Contains("Weixin.exe"));
+        Assert.Contains(vm.BuiltinListSections, s => s.Title.Contains("残留模式库") && s.ItemsText.Contains("crashpad"));
+
+        vm.ToggleBuiltinListsPanel();
+        Assert.False(vm.IsBuiltinListsPanelOpen);
+    }
+
+    [Fact]
+    public void 未注入名单库_内置名单命令不可用_开关无效果()
+    {
+        var (vm, _, _, _) = NewVm();
+        Assert.False(vm.ToggleBuiltinListsCommand.CanExecute(null));
+
+        vm.ToggleBuiltinListsPanel();
+        Assert.False(vm.IsBuiltinListsPanelOpen);
+    }
+
     [Fact]
     public async Task 组标题合计_组内父子树去重不重复计数()
     {

@@ -58,7 +58,8 @@ public static class CompositionRoot
             scannerInstance, rules, rulePackStore, context, () => whitelistStore.Snapshot());
         return new MainViewModel(
             new UiStateMachine(), coordinator, rules, whitelistStore,
-            releaser, logStore, confirmDialog, restarter, marshal, restartFailedItems, shutdown);
+            releaser, logStore, confirmDialog, restarter, marshal, restartFailedItems, shutdown,
+            rulePackStore: rulePackStore);
     }
 
     /// <summary>

@@ -187,8 +187,12 @@
                             IsEnabled="{Binding Availability.ListInputEnabled}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
-                    <Button Command="{Binding ToggleWhitelistPanelCommand}" MinWidth="100"
+                    <Button Command="{Binding ToggleBuiltinListsCommand}" MinWidth="100"
                             Style="{StaticResource GhostButton}"
+                            Content="内置名单"
+                            ToolTip="查看保护名单/常驻应用/残留模式库/安全软件四份内置名单（只读）" />
+                    <Button Command="{Binding ToggleWhitelistPanelCommand}" MinWidth="100"
+                            Style="{StaticResource GhostButton}" Margin="8,0,0,0"
                             Content="白名单管理"
                             ToolTip="查看全部白名单条目（含添加时间/路径/备注），支持逐项移除" />
                     <Button Command="{Binding OpenLogFileCommand}" MinWidth="84"
@@ -319,6 +323,39 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </ScrollViewer>
+                </StackPanel>
+            </Border>
+
+            <!-- 内置名单面板（T-28 陪伴功能）：四份内置名单只读展示——命中效果说明+条目清单；
+                 名单迭代走资源文件+PRD 附录登记，面板不提供编辑 -->
+            <Border Grid.Row="1" Margin="12,4" Style="{StaticResource Card}"
+                    Visibility="{Binding IsBuiltinListsPanelOpen, Converter={StaticResource BoolToVisibility}}">
+                <StackPanel>
+                    <DockPanel LastChildFill="False">
+                        <TextBlock DockPanel.Dock="Left" Text="内置名单" FontSize="14" FontWeight="Bold" />
+                        <Button DockPanel.Dock="Right" Command="{Binding ToggleBuiltinListsCommand}"
+                                Content="收起" MinWidth="60" Style="{StaticResource GhostButton}" />
+                    </DockPanel>
+                    <TextBlock Text="四份名单由工具内置并随使用迭代（改名单走仓库资源文件）；命中的进程会按各节说明的效果参与判定。"
+                               Foreground="{StaticResource Brush.TextSecondary}" FontSize="11" Margin="0,3,0,8"
+                               TextWrapping="Wrap" />
+                    <ItemsControl ItemsSource="{Binding BuiltinListSections}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border BorderBrush="{StaticResource Brush.Line}" BorderThickness="0,0,0,1"
+                                        Padding="2,6">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding EffectText}"
+                                                   Foreground="{StaticResource Brush.TextSecondary}"
+                                                   FontSize="11" Margin="0,1,0,2" />
+                                        <TextBlock Text="{Binding ItemsText}" TextWrapping="Wrap"
+                                                   FontFamily="Consolas" FontSize="12" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                 </StackPanel>
             </Border>
 
