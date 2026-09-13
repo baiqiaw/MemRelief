@@ -27,10 +27,10 @@ public class RulePackStoreTests
         var security = Assert.Single(result.Pack.SecurityApps);
         Assert.Equal("MsMpEng.exe", security.Name);
         Assert.Null(security.Signer);
-        // PRD 附录 #4：系统保护穷举名（9 项全在 PRD 明文）
+        // PRD 附录 #4：系统保护穷举名（9 项系统进程 + v1.5 追加 claude.exe 用户核心工作进程）
         Assert.Equal(
             new[] { "smss.exe", "csrss.exe", "wininit.exe", "winlogon.exe", "services.exe",
-                    "lsass.exe", "svchost.exe", "dwm.exe", "lsaiso.exe" },
+                    "lsass.exe", "svchost.exe", "dwm.exe", "lsaiso.exe", "claude.exe" },
             result.Pack.ProtectedProcesses);
     }
 

@@ -8,5 +8,8 @@
   "lsass.exe",
   "svchost.exe",
   "dwm.exe",
-  "lsaiso.exe"
+  "lsaiso.exe",
+  // 用户核心工作进程（v1.5 追加，issue #46 实测：claude 会话被误推荐——无窗口+采样瞬间无连接的活工作进程
+  // 无法与死残留机械区分，进保护名单🚫永不可勾选；名单随使用迭代，同类工作宿主可按需追加）
+  "claude.exe"
 ]

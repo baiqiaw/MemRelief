@@ -130,6 +130,7 @@ public sealed class RulesEngine : IRulesEngine
         var pathByPid = scan.Snapshots.ToDictionary(x => x.Pid, x => x.ExecutablePath);
         var parentByPid = scan.Snapshots.ToDictionary(x => x.Pid, x => x.ParentPid);
         var childByPid = scan.Snapshots.ToLookup(x => x.ParentPid, x => x.Pid);
+        var anchoredPids = ComputeAnchoredPids(scan.Snapshots, parentByPid);
         var hasGlobalFailure = scan.Failures.Any(f => !f.Pid.HasValue);
         var failuresByPid = scan.Failures
             .Where(f => f.Pid.HasValue)
@@ -141,7 +142,7 @@ public sealed class RulesEngine : IRulesEngine
         {
             failuresByPid.TryGetValue(p.Pid, out var failures);
             result.Add(ClassifyOne(p, whitelist, pack, ctx, hasGlobalFailure, failures,
-                treeBytes.GetValueOrDefault(p.Pid), orphanPids, pathByPid, parentByPid, childByPid));
+                treeBytes.GetValueOrDefault(p.Pid), orphanPids, pathByPid, parentByPid, childByPid, anchoredPids));
         }
         return result;
     }
@@ -158,7 +159,8 @@ public sealed class RulesEngine : IRulesEngine
         HashSet<int> orphanPids,
         Dictionary<int, string?> pathByPid,
         IReadOnlyDictionary<int, int> parentByPid,
-        ILookup<int, int> childByPid)
+        ILookup<int, int> childByPid,
+        HashSet<int> anchoredPids)
     {
         var bases = new List<Basis>();
         var level = Level.Unmatched;
@@ -369,15 +371,17 @@ public sealed class RulesEngine : IRulesEngine
         }
 
         // 旁证降级（口径 #3）：✅ 候选同目录存在其他存活进程，剔除孤儿命中者、自身与同路径同名实例（集群互不作证，
-        // PRD v1.5 / issue #46：同路径同名=同一程序多实例，不构成「在用组件」旁证，crashpad 主程序+组件形态不受影响；
-        // 但同名豁免不适用于自身直系祖先/后代——监管者与被监管者互为旁证，杀树会带走正在工作的宿主会话）→ 降⚠️
+        // PRD v1.5 / issue #46：同路径同名=同一程序多实例，不构成「在用组件」旁证，crashpad 主程序+组件形态不受影响）。
+        // 同名豁免的树内直系例外：监管者/工作者（herdr 父子对等）互为旁证不豁免——但仅限主体链锚定在活会话
+        // （直系祖先中存在带可见窗口者）；死锚链（锚自身为孤儿的死会话残留）整链不豁免，残留浮上✅
         if (hasRecommendBasis && !compromised && level == Level.Recommend && s.SameDirAlivePids.Count > 0)
         {
+            var anchored = anchoredPids.Contains(p.Pid);
             var witness = s.SameDirAlivePids.Where(pid =>
                 pid != p.Pid &&
                 !orphanPids.Contains(pid) &&
                 (!Scanner.SignalRules.PathExactEquals(pathByPid.GetValueOrDefault(pid), p.ExecutablePath)
-                 || IsAncestorOrDescendant(p.Pid, pid, parentByPid, childByPid))).ToList();
+                 || (anchored && IsAncestorOrDescendant(p.Pid, pid, parentByPid, childByPid)))).ToList();
             if (witness.Count > 0)
             {
                 bases.Add(new Basis(3, "同目录存在存活进程，疑似在用组件"));
@@ -527,6 +531,70 @@ public sealed class RulesEngine : IRulesEngine
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// 会话锚定集（口径 #3 同名豁免的树内直系守卫）：进程存在带可见窗口的直系祖先即视为锚定在活会话
+    /// （终端/IDE 活窗口是会话存活的可靠机械判据）。活锚链上的同名直系（监管者/工作者，如 herdr 父子对）
+    /// 互为旁证不豁免；死锚链（整链无窗口祖先，如 claude 会话死后残留的 sh←node←node）同名直系不豁免失效，
+    /// 残留整链浮上✅。已知边界：宿主窗口已关闭但会话仍活的极端形态会被视为残留（确认弹窗仍逐项可见）。
+    /// 沿 ppid 自底向上单趟解析（已解析子链直接继承），visited 防环。已知边界：祖先链沿裸 PPID 上行，
+    /// 未接入口径 #1 的 PID 复用创建时间校验——复用 PPID 恰指向带窗进程时死链被误锚定（保守向漏清理，不误杀）。
+    /// </summary>
+    private static HashSet<int> ComputeAnchoredPids(
+        IReadOnlyList<ProcessSnapshot> snapshots, IReadOnlyDictionary<int, int> parentByPid)
+    {
+        var windowByPid = snapshots.ToDictionary(x => x.Pid, x => x.Signals.HasVisibleWindow == true);
+        // null（枚举失败）视为有窗口：与口径 #4 的 null 保守语义对齐（数据缺失不放大✅放行）
+        var IsLiveAnchor = (int pid) => windowByPid.TryGetValue(pid, out var window) && window != false;
+
+        var anchored = new HashSet<int>();
+        var resolved = new Dictionary<int, bool>();
+        foreach (var snapshot in snapshots)
+        {
+            if (resolved.ContainsKey(snapshot.Pid))
+            {
+                continue;
+            }
+
+            var chain = new List<int>();
+            var seen = new HashSet<int>();
+            var cursor = snapshot.Pid;
+            var inherited = false;
+            while (seen.Add(cursor))
+            {
+                if (resolved.TryGetValue(cursor, out var known))
+                {
+                    inherited = known || IsLiveAnchor(cursor);
+                    break;
+                }
+                chain.Add(cursor);
+                if (!parentByPid.TryGetValue(cursor, out var parent) || parent == 0)
+                {
+                    break;
+                }
+                cursor = parent;
+            }
+
+            // 自顶向底：anchored(节点) = 链上方（更靠顶的直系祖先）存在带可见窗口者
+            for (var i = chain.Count - 1; i >= 0; i--)
+            {
+                resolved[chain[i]] = inherited;
+                if (IsLiveAnchor(chain[i]))
+                {
+                    inherited = true;
+                }
+            }
+            foreach (var pid in chain)
+            {
+                if (resolved[pid])
+                {
+                    anchored.Add(pid);
+                }
+            }
+        }
+
+        return anchored;
     }
 
     /// <summary>口径 #1 全集：孤儿判定命中者（旁证互斥用：孤儿群互不为旁证）。</summary>

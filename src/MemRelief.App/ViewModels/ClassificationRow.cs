@@ -77,6 +77,7 @@ public sealed class ClassificationRow : INotifyPropertyChanged
 
         index.TryGet(classification.Pid, out var processSnapshot);
         ProcessName = DisplayText.PidFallbackName(processSnapshot?.Name, classification.Pid);
+        ParentPid = processSnapshot?.ParentPid ?? 0;
         // 孤儿项（含 PID 复用）主进程名后缀（R02 空值口径）
         var orphan = processSnapshot is not null
             && processSnapshot.Signals.OrphanHint is OrphanHint.ParentDead or OrphanHint.PidReused;
@@ -92,6 +93,9 @@ public sealed class ClassificationRow : INotifyPropertyChanged
     }
 
     public int Pid { get; }
+
+    /// <summary>父进程 PID（快照原文；组标题树合计去重用——父也在同组的行已被父行树合计覆盖）。</summary>
+    public int ParentPid { get; }
 
     /// <summary>主进程名（快照原文；加白按名匹配的键）。</summary>
     public string ProcessName { get; }

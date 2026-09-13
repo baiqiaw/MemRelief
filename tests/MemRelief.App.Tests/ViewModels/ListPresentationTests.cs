@@ -442,6 +442,35 @@ public class ListPresentationTests
         Assert.Equal(new[] { 21, 100 }, vm.Groups[0].Rows.Where(r => r.IsChecked).Select(r => r.Pid));
     }
 
+    // 组标题合计去重：父与子同落一组时，父行树合计已含子树，仅计父自身提交（防止重复计数高估）
+    [Fact]
+    public async Task 组标题合计_组内父子树去重不重复计数()
+    {
+        ScanResult snapshot = new(
+            TakenAtUtc: T, ProcessCount: 2, DurationMs: 5,
+            Snapshots:
+            [
+                new ProcessSnapshot(51, 0, "parent.exe", @"C:\apps\parent.exe", T, 500 * Mb),
+                new ProcessSnapshot(52, 51, "child.exe", @"C:\apps\child.exe", T, 400 * Mb),
+            ],
+            Failures: []);
+        var rules = new FakeRules
+        {
+            Result =
+            [
+                new Classification(51, Level.Recommend, [new Basis(4, "无窗口用户级应用")], 900 * Mb, false, [], false),
+                new Classification(52, Level.Recommend, [new Basis(4, "无窗口用户级应用")], 400 * Mb, false, [], false),
+            ],
+        };
+        var vm = await ScannedVmAsync(
+            new FakeScanner { OnTakeSnapshot = () => Task.FromResult(snapshot) }, rules);
+
+        var group = vm.Groups.Single(g => g.Level == Level.Recommend);
+        // 去重合计 = 500（父自身，父的树合计 900 含子 400）+ 400（子）= 900MB，而非 1300
+        Assert.Contains("900.0 MB", group.Title);
+        Assert.DoesNotContain("1.3", group.Title);
+    }
+
     [Fact]
     public async Task 保护级同名聚合行_复选框禁用不可加白()
     {

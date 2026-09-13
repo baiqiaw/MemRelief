@@ -191,20 +191,42 @@ public class ClassifyGwtTests
         Assert.Contains(byId[21].Bases, b => b.SignalId == 3);
     }
 
-    // GWT-14 追加（issue #46 实测回归：herdr.exe 监管者/工作者形态）：同路径同名实例互为直系祖先/后代时
-    // 豁免不成立——监管者与被监管者互为旁证 → ⚠️（杀树会带走正在工作的宿主会话，不得进✅）
+    // GWT-14 追加（issue #46 实测回归：herdr.exe 监管者/工作者形态）：同路径同名实例互为直系祖先/后代、
+    // 且链锚定在活会话（直系祖先带可见窗口的终端）时，豁免不成立——监管者与被监管者互为旁证 → ⚠️
     [Fact]
     public void Gwt14监管形态_同名直系祖先后代_旁证仍成立_降谨慎级()
     {
         const string herdrPath = @"C:\Programs\Herdr\bin\herdr.exe";
+        var terminal = Snap.Clean(30, name: "WindowsTerminal.exe", path: @"C:\Programs\Term\WindowsTerminal.exe",
+            bytes: 100 * Snap.Mb,
+            signals: Snap.CleanSignals() with { HasVisibleWindow = true });
         var supervisor = Snap.Clean(31, ppid: 30, name: "herdr.exe", path: herdrPath, bytes: 200 * Snap.Mb,
             signals: Snap.CleanSignals() with { SameDirAlivePids = new HashSet<int> { 32 } });
         var worker = Snap.Clean(32, ppid: 31, name: "herdr.exe", path: herdrPath, bytes: 200 * Snap.Mb,
             signals: Snap.CleanSignals() with { SameDirAlivePids = new HashSet<int> { 31 } });
-        var byId = Classify(Snap.Scan(supervisor, worker));
+        var byId = Classify(Snap.Scan(terminal, supervisor, worker));
         Assert.Equal(Level.Caution, byId[31].Level);
         Assert.Equal(Level.Caution, byId[32].Level);
         Assert.Contains(byId[31].Bases, b => b.SignalId == 3);
         Assert.Contains(byId[32].Bases, b => b.SignalId == 3);
+    }
+
+    // GWT-14 追加（死会话残留链）：孤儿壳（sh，父已退出）下挂同名 node 链、整链无可见窗口祖先——
+    // 死锚链同名直系不豁免，残留整链浮上✅（壳自身因同目录活进程旁证暂⚠️，子树释放后复扫转✅）
+    [Fact]
+    public void Gwt14死会话残留链_无活锚整链浮上推荐级()
+    {
+        const string nodePath = @"C:\Users\u\AppData\Local\nvm\v22\node.exe";
+        var shell = Snap.Clean(41, name: "sh.exe", path: @"C:\Users\u\AppData\Local\nvm\v22\sh.exe",
+            bytes: 5 * Snap.Mb, signals: Snap.Orphan() with { SameDirAlivePids = new HashSet<int> { 42, 43 } });
+        var nodeParent = Snap.Clean(42, ppid: 41, name: "node.exe", path: nodePath, bytes: 500 * Snap.Mb,
+            signals: Snap.CleanSignals() with { SameDirAlivePids = new HashSet<int> { 41, 43 } });
+        var nodeChild = Snap.Clean(43, ppid: 42, name: "node.exe", path: nodePath, bytes: 400 * Snap.Mb,
+            signals: Snap.CleanSignals() with { SameDirAlivePids = new HashSet<int> { 41, 42 } });
+        var byId = Classify(Snap.Scan(shell, nodeParent, nodeChild));
+        Assert.Equal(Level.Recommend, byId[42].Level);
+        Assert.Equal(Level.Recommend, byId[43].Level);
+        Assert.DoesNotContain(byId[42].Bases, b => b.SignalId == 3);
+        Assert.Equal(Level.Caution, byId[41].Level);
     }
 }
