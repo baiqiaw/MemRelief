@@ -5,8 +5,8 @@ schema_version: 1
 project: MemRelief
 size_tier: medium                      # WBS 408h ≈ 2.5 人月（1–3 人月档）
 modules_activated: [spec_three_layer, poc, multi_agent_parallel]  # 偏离中档默认矩阵：ui_prototype 跳过（自用无甲方，PRD §1.4）、spec_three_layer 升三层、arch_review 跳过（中档默认即跳）、phased_rollout 跳过（TL 2026-09-08 裁决维持）
-current_phase: "④实现"
-current_step: "④.s1 派发"
+current_phase: "⑤验收"
+current_step: "⑤.s1 测试"
 step_status:
   "①.s1 范围基线": done                # 回填：无投标环节，范围源 = PRD v1.3；071089c 关闭「本机基线采样」待确认项（M1 前置达成）
   "①.s2 账本+知识底座+缺口视图": done   # 2026-09-07 建；缺口视图=自举场景（无生成器，原料+轴声明就位；入口已在项目 CLAUDE.md 接线，无生成器故无 SessionStart 注入）
@@ -18,14 +18,15 @@ step_status:
   "③.s3 技术 POC": done                # 基线采样落档（071089c，baseline-sample.ps1）
   "③.s4 grilling 拷问": done           # 2026-09-08 补跑完成：两轮 10 项裁决 TL 逐条采纳，落 data-contracts §1.5/§2 与 issue #30
   "③.s5 排期": done                    # CPM 29.0d/P80 30.4（ef23a44），issue 已生成
-  "④.s1 派发": in_progress             # 关单累计 19 issue（交付单口径：WBS 交付物工作包主单，边界/债/裁决/重复单不计）；实现类工作包全部合入 main（验收段 T-22/T-24/T-25 除外）：T-26（27432ac）/ T-21（be96bfe）/ T-16（b8a2a04）/ T-19（2e64187）待 AC 签字关单，其中 T-21 另有 AC2 冷扫超标待 TL 裁决（#23 裁决前不关单）；T-27（#34）/#38 待验收；T-10/T-17 已关单（#18/#20）；边界 #39；债登记 #40 / #41 / #42
-worker_assignment: {}                  # 双车道收空（2026-09-13 二批交付完毕）；待 AC 签字清积压后评估推进 ⑤（T-22/T-24/T-25 验收段）
+  "④.s1 派发": done                    # 2026-09-13 收口：实现类工作包全部交付关单（TL 签字，T-16 #19 / T-19 #21 / T-26 #22 / T-21 #23 / T-27 #34 / T-17 收口 #38）；#23 AC2 裁决为选项①豁免（详见 #23）
+  "⑤.s1 测试": pending                # T-22 GWT 矩阵+真机验收（#24）候选，待 TL 确认派发
+worker_assignment: {}                  # ⑤.s1 候选：T-22 GWT 验收矩阵与真机验收（#24）——待 TL 确认派发；存量债 #39 / #40 / #41 / #42 开放（#41 与真机验收相关）
 gate_status:
   "①立项": passed
   "②需求": passed
   "③设计": passed                      # ③.s4 grilling 补跑 2026-09-08 收口（10 项裁决落档）
-  "④实现": in_progress                 # 每 WP：TDD 绿+Review+git 干净+覆盖率≥80%；AC 签字关单归 issue
-  "⑤验收": pending
+  "④实现": passed                      # 2026-09-13 收口：实现类 WP 全部 AC 签字关单（TL 签字；验收段 T-22/T-24/T-25 归 ⑤）
+  "⑤验收": in_progress                 # s1 测试（T-22 GWT 矩阵+真机验收）待派发
   "⑥回流": pending
 gate_failures: []
 gate_overrides: []
@@ -48,5 +49,5 @@ last_updated: 2026-09-13
 
 - 索引非副本：任务级状态归 issue state + git log；质量明细归 cross-review + AC；里程碑归 [docs/项目阶段追踪.md](../docs/项目阶段追踪.md)。
 - 缺口任务全集 = WBS T-NN ∪ GitHub issue（gh cli）。双源冲突消解规则见 `knowledge/agent-rules/context-order.md` 第 2 条。
-- 2026-09-07 回填建账：项目实际已行至 ④。已提交带 [reviewed]：T-18（#1 已关单）、T-07（#7 已关单）；T-06/T-01/T-23（#4/#3/#2 待 AC 签字关单）；账本按 git 实证回填，不重放 ①②③。
+- 2026-09-07 回填建账（历史快照，现状以 frontmatter 为准）：项目实际已行至 ④。已提交带 [reviewed]：T-18（#1 已关单）、T-07（#7 已关单）；T-06/T-01/T-23（#4/#3/#2 待 AC 签字关单）；账本按 git 实证回填，不重放 ①②③。
 - 并行三要件已满足：契约冻结（③.s1）+ 任务边界清晰（WBS）+ 状态统一（账本+issue）；双车道 capacity=2，车道内串行。
