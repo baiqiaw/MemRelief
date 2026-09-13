@@ -128,6 +128,8 @@ public sealed class RulesEngine : IRulesEngine
         var treeBytes = ComputeTreePrivateBytes(scan.Snapshots);
         var orphanPids = CollectOrphanPids(scan.Snapshots);
         var pathByPid = scan.Snapshots.ToDictionary(x => x.Pid, x => x.ExecutablePath);
+        var parentByPid = scan.Snapshots.ToDictionary(x => x.Pid, x => x.ParentPid);
+        var childByPid = scan.Snapshots.ToLookup(x => x.ParentPid, x => x.Pid);
         var hasGlobalFailure = scan.Failures.Any(f => !f.Pid.HasValue);
         var failuresByPid = scan.Failures
             .Where(f => f.Pid.HasValue)
@@ -139,7 +141,7 @@ public sealed class RulesEngine : IRulesEngine
         {
             failuresByPid.TryGetValue(p.Pid, out var failures);
             result.Add(ClassifyOne(p, whitelist, pack, ctx, hasGlobalFailure, failures,
-                treeBytes.GetValueOrDefault(p.Pid), orphanPids, pathByPid));
+                treeBytes.GetValueOrDefault(p.Pid), orphanPids, pathByPid, parentByPid, childByPid));
         }
         return result;
     }
@@ -154,7 +156,9 @@ public sealed class RulesEngine : IRulesEngine
         List<SignalFailure>? failures,
         long treeBytes,
         HashSet<int> orphanPids,
-        Dictionary<int, string?> pathByPid)
+        Dictionary<int, string?> pathByPid,
+        IReadOnlyDictionary<int, int> parentByPid,
+        ILookup<int, int> childByPid)
     {
         var bases = new List<Basis>();
         var level = Level.Unmatched;
@@ -365,13 +369,15 @@ public sealed class RulesEngine : IRulesEngine
         }
 
         // 旁证降级（口径 #3）：✅ 候选同目录存在其他存活进程，剔除孤儿命中者、自身与同路径同名实例（集群互不作证，
-        // PRD v1.5 / issue #46：同路径同名=同一程序多实例，不构成「在用组件」旁证，crashpad 主程序+组件形态不受影响）→ 降⚠️
+        // PRD v1.5 / issue #46：同路径同名=同一程序多实例，不构成「在用组件」旁证，crashpad 主程序+组件形态不受影响；
+        // 但同名豁免不适用于自身直系祖先/后代——监管者与被监管者互为旁证，杀树会带走正在工作的宿主会话）→ 降⚠️
         if (hasRecommendBasis && !compromised && level == Level.Recommend && s.SameDirAlivePids.Count > 0)
         {
             var witness = s.SameDirAlivePids.Where(pid =>
                 pid != p.Pid &&
                 !orphanPids.Contains(pid) &&
-                !Scanner.SignalRules.PathExactEquals(pathByPid.GetValueOrDefault(pid), p.ExecutablePath)).ToList();
+                (!Scanner.SignalRules.PathExactEquals(pathByPid.GetValueOrDefault(pid), p.ExecutablePath)
+                 || IsAncestorOrDescendant(p.Pid, pid, parentByPid, childByPid))).ToList();
             if (witness.Count > 0)
             {
                 bases.Add(new Basis(3, "同目录存在存活进程，疑似在用组件"));
@@ -480,6 +486,47 @@ public sealed class RulesEngine : IRulesEngine
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// otherPid 是否为 subjectPid 的直系祖先或后代（口径 #3 同名豁免的反向守卫，issue #46 实测回归）：
+    /// 监管者/工作者（如 herdr 父子对）互为树内直系，杀任一方都会带走另一方的工作——同名不豁免，旁证成立。
+    /// 祖先沿 ppid 上行、后代经父子 lookup 下行，双visited防环（快照仅约束 pid 唯一，ppid 环可能）。
+    /// </summary>
+    private static bool IsAncestorOrDescendant(
+        int subjectPid, int otherPid,
+        IReadOnlyDictionary<int, int> parentByPid, ILookup<int, int> childByPid)
+    {
+        var ancestorSeen = new HashSet<int> { subjectPid };
+        var cursor = subjectPid;
+        while (parentByPid.TryGetValue(cursor, out var parent) && parent != 0 && ancestorSeen.Add(parent))
+        {
+            if (parent == otherPid)
+            {
+                return true;
+            }
+            cursor = parent;
+        }
+
+        var stack = new Stack<int>();
+        stack.Push(subjectPid);
+        var descendantSeen = new HashSet<int> { subjectPid };
+        while (stack.Count > 0)
+        {
+            foreach (var child in childByPid[stack.Pop()])
+            {
+                if (child == otherPid)
+                {
+                    return true;
+                }
+                if (descendantSeen.Add(child))
+                {
+                    stack.Push(child);
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>口径 #1 全集：孤儿判定命中者（旁证互斥用：孤儿群互不为旁证）。</summary>

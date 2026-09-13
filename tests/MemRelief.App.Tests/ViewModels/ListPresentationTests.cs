@@ -404,6 +404,8 @@ public class ListPresentationTests
         var group = vm.Groups.Single(g => g.Level == Level.Recommend);
         // 平铺 Rows 保持事实源（4 行，树合计降序）
         Assert.Equal(new[] { 21, 22, 23, 100 }, group.Rows.Select(r => r.Pid));
+        // 组标题带内存合计（✅ 语义=可释放）：600+500+400+65=1565MB
+        Assert.Contains("1.5 GB", group.Title);
 
         // 渲染面：node ×3 聚合为一组行 + a.exe 单实例行；聚合行替换首成员位置（树合计降序在最前）
         var aggregate = Assert.Single(group.DisplayRows.OfType<ProcessAggregateRow>());

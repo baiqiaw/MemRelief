@@ -75,14 +75,19 @@ internal static class DisplayText
         _ => "未命中规则，不进列表",
     };
 
-    /// <summary>组标题（带项数计数；🚫 折叠态靠此承载“仅计数”）。</summary>
-    public static string GroupTitle(Level level, int count) => level switch
+    /// <summary>组标题（带项数计数与内存合计：✅ 语义=可释放、⚠️/🚫 语义=占用；🚫 折叠态靠此承载“仅计数”）。</summary>
+    public static string GroupTitle(Level level, int count, long totalTreeBytes) => level switch
     {
-        Level.Recommend => $"✅ 推荐可释放（{count} 项）",
-        Level.Caution => $"⚠️ 谨慎（{count} 项）",
-        Level.Protected => $"🚫 不推荐（{count} 项）",
+        Level.Recommend => $"✅ 推荐可释放（{count} 项 · 可释放约 {TreeSize(totalTreeBytes)}）",
+        Level.Caution => $"⚠️ 谨慎（{count} 项 · 占用约 {TreeSize(totalTreeBytes)}）",
+        Level.Protected => $"🚫 不推荐（{count} 项 · 占用约 {TreeSize(totalTreeBytes)}）",
         _ => level.ToString(),
     };
+
+    /// <summary>内存量级文案：≥1GB 一位小数 GB，否则 MB。</summary>
+    public static string TreeSize(long bytes) => bytes >= 1024L * 1024 * 1024
+        ? $"{bytes / 1024.0 / 1024 / 1024:F1} GB"
+        : TreeMb(bytes);
 
     /// <summary>
     /// 单条依据展示文案：Detail 自解释直展（#28 裁决②）；唯一补全=口径 #8 失败恢复服务，

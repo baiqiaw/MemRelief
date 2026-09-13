@@ -18,7 +18,7 @@ public sealed class LevelGroup : INotifyPropertyChanged
         // F2：组内按树合计私有提交降序（同值按 PID 稳定序，防扫描间顺序抖动）
         Rows = rows.OrderByDescending(r => r.TreePrivateBytes).ThenBy(r => r.Pid).ToList();
         _isExpanded = level != Level.Protected;
-        Title = DisplayText.GroupTitle(level, Rows.Count);
+        Title = DisplayText.GroupTitle(level, Rows.Count, Rows.Sum(r => r.TreePrivateBytes));
         // T-28 同名聚合（issue #46）：同名 ≥2 实例聚合为组行；DisplayRows=单实例行+聚合组行按 Rows 序混排
         //（聚合行替换其首成员位置）。Rows 保持平铺，勾选/释放/加白逻辑仍以平铺行为唯一事实源。
         Aggregates = Rows.GroupBy(r => r.ProcessName, StringComparer.OrdinalIgnoreCase)

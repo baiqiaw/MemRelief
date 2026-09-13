@@ -190,4 +190,21 @@ public class ClassifyGwtTests
         Assert.Equal(Level.Caution, byId[21].Level);
         Assert.Contains(byId[21].Bases, b => b.SignalId == 3);
     }
+
+    // GWT-14 追加（issue #46 实测回归：herdr.exe 监管者/工作者形态）：同路径同名实例互为直系祖先/后代时
+    // 豁免不成立——监管者与被监管者互为旁证 → ⚠️（杀树会带走正在工作的宿主会话，不得进✅）
+    [Fact]
+    public void Gwt14监管形态_同名直系祖先后代_旁证仍成立_降谨慎级()
+    {
+        const string herdrPath = @"C:\Programs\Herdr\bin\herdr.exe";
+        var supervisor = Snap.Clean(31, ppid: 30, name: "herdr.exe", path: herdrPath, bytes: 200 * Snap.Mb,
+            signals: Snap.CleanSignals() with { SameDirAlivePids = new HashSet<int> { 32 } });
+        var worker = Snap.Clean(32, ppid: 31, name: "herdr.exe", path: herdrPath, bytes: 200 * Snap.Mb,
+            signals: Snap.CleanSignals() with { SameDirAlivePids = new HashSet<int> { 31 } });
+        var byId = Classify(Snap.Scan(supervisor, worker));
+        Assert.Equal(Level.Caution, byId[31].Level);
+        Assert.Equal(Level.Caution, byId[32].Level);
+        Assert.Contains(byId[31].Bases, b => b.SignalId == 3);
+        Assert.Contains(byId[32].Bases, b => b.SignalId == 3);
+    }
 }
