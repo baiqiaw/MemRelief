@@ -18,9 +18,8 @@ step_status:
   "③.s3 技术 POC": done                # 基线采样落档（071089c，baseline-sample.ps1）
   "③.s4 grilling 拷问": done           # 2026-09-08 补跑完成：两轮 10 项裁决 TL 逐条采纳，落 data-contracts §1.5/§2 与 issue #30
   "③.s5 排期": done                    # CPM 29.0d/P80 30.4（ef23a44），issue 已生成
-  "④.s1 派发": in_progress             # 关单累计 19 issue（交付单口径）；T-19 已合入 main（2e64187）待 AC 签字关单；T-10/T-17 已关单（#18/#20）；边界 #39；#38 剩步骤 2（随 T-16 车道）
-worker_assignment:                     # 2026-09-13 TL 确认双车道 worktree 并行；T-19 合入后车道 2 收空；T-26（#22）维持排后（与 T-16 同 App 域，T-16 合入后派）
-  "T-16": "车道1进行中（#19，并入 #34；含 #38 步骤2；基点 ae3252b，main 已前移至 2e64187，合入非快进）；App 交互域 + Core 释放编排接线"
+  "④.s1 派发": in_progress             # 关单累计 19 issue（交付单口径，不含 #27/#33 附属裁决单）；T-16/T-19 已合入 main（b8a2a04 / 2e64187）待 AC 签字关单；T-27（#34）待验收；#38 三步收口待验收；T-10/T-17 已关单（#18/#20）；边界 #39；债登记 #40 / #41
+worker_assignment: {}                  # 双车道收空（2026-09-13）；实现类仅剩 T-26（#22，下一批候选）；⑤ 前置 T-21 验证台（#23）候选
 gate_status:
   "①立项": passed
   "②需求": passed
