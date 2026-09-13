@@ -40,6 +40,21 @@ public class CompositionRootTests
     }
 
     [Fact]
+    public void 组合根_目录入口与白名单面板接线_命令可用()
+    {
+        // T-26：组合根透传真实 ReleaseLogStore——"打开日志/数据目录"入口可用
+        // （logStore 缺省 null=T-16 缺省语义"不启用对应编排"，故显式传参断言接线）；
+        // 白名单面板开关/逐项移除恒可用（不触判定链，任意态开放）
+        var vm = CompositionRoot.CreateViewModel(logStore: new ReleaseLogStore());
+
+        Assert.True(vm.OpenLogFileCommand.CanExecute(null));
+        Assert.True(vm.OpenDataDirectoryCommand.CanExecute(null));
+        Assert.True(vm.ToggleWhitelistPanelCommand.CanExecute(null));
+        Assert.False(vm.IsWhitelistPanelOpen);   // 面板默认收起
+        Assert.Empty(vm.WhitelistEntries);
+    }
+
+    [Fact]
     public void 组合根_ScanCoordinator依赖真实Scanner()
     {
         // 防呆：组合根装配的是 Core 真实 Scanner（无参构造），不是任何替身类型

@@ -46,7 +46,8 @@
                 <!-- 释放编排失败提示（规划失败/执行链违约兜底；与报告呈现严格区分） -->
                 <TextBlock Text="{Binding ReleaseFailedMessage}" Foreground="Red" Margin="0,6,0,0"
                            Visibility="{Binding HasReleaseFailed, Converter={StaticResource BoolToVisibility}}" />
-                <!-- 轻提示（白名单自愈/加白失败/提权重启编排反馈，storage.md §4.1 Recovery 通道） -->
+                <!-- 轻提示（白名单自愈/加白与移除失败/面板刷新失败/目录入口打开失败/提权重启编排反馈，
+                     storage.md §4.1 Recovery 通道；单一提示槽：任一后续操作成功即清除先前提示） -->
                 <TextBlock Text="{Binding WhitelistNotice}" Foreground="DarkGoldenrod" Margin="0,4,0,0"
                            Visibility="{Binding HasWhitelistNotice, Converter={StaticResource BoolToVisibility}}" />
             </StackPanel>
@@ -70,25 +71,39 @@
             </ScrollViewer>
         </Border>
 
-        <!-- 搜索框：全量判定查询（IRulesEngine.Query，R02）；可用性随矩阵 -->
+        <!-- 搜索框：全量判定查询（IRulesEngine.Query，R02）；可用性随矩阵。
+             右侧工具栏（F4/F6，T-26）：白名单管理面板开关 + 打开日志/数据目录入口；
+             三者不触判定链，可用性由命令自身承载（日志入口随存储注入），不属五态矩阵 -->
         <Border DockPanel.Dock="Top" Padding="12,8">
-            <StackPanel Orientation="Horizontal">
-                <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                         IsEnabled="{Binding Availability.ListInputEnabled}"
-                         Width="320" MinHeight="28" VerticalContentAlignment="Center"
-                         ToolTip="输入进程名或 PID，查询任意进程（含列表外）的判定结果与依据">
-                    <TextBox.InputBindings>
-                        <KeyBinding Key="Enter" Command="{Binding SearchCommand}" />
-                    </TextBox.InputBindings>
-                </TextBox>
-                <Button Command="{Binding SearchCommand}" Content="查询" MinWidth="72" MinHeight="28" Margin="8,0,0,0"
-                        IsEnabled="{Binding Availability.ListInputEnabled}" />
-            </StackPanel>
+            <DockPanel LastChildFill="False">
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                    <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                             IsEnabled="{Binding Availability.ListInputEnabled}"
+                             Width="320" MinHeight="28" VerticalContentAlignment="Center"
+                             ToolTip="输入进程名或 PID，查询任意进程（含列表外）的判定结果与依据">
+                        <TextBox.InputBindings>
+                            <KeyBinding Key="Enter" Command="{Binding SearchCommand}" />
+                        </TextBox.InputBindings>
+                    </TextBox>
+                    <Button Command="{Binding SearchCommand}" Content="查询" MinWidth="72" MinHeight="28" Margin="8,0,0,0"
+                            IsEnabled="{Binding Availability.ListInputEnabled}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                    <Button Command="{Binding ToggleWhitelistPanelCommand}" MinWidth="96" MinHeight="28"
+                            Content="白名单管理"
+                            ToolTip="查看全部白名单条目（含添加时间/路径/备注），支持逐项移除" />
+                    <Button Command="{Binding OpenLogFileCommand}" MinWidth="72" MinHeight="28" Margin="8,0,0,0"
+                            Content="打开日志" ToolTip="打开释放历史日志文件（尚未生成时打开数据目录）" />
+                    <Button Command="{Binding OpenDataDirectoryCommand}" MinWidth="96" MinHeight="28" Margin="8,0,0,0"
+                            Content="数据目录" ToolTip="打开用户数据目录（白名单与日志所在位置）" />
+                </StackPanel>
+            </DockPanel>
         </Border>
 
-        <!-- 中部：搜索结果 / 三级列表 / 白名单排除计数 -->
+        <!-- 中部：搜索结果 / 白名单管理面板 / 三级列表 / 白名单排除计数折叠区 -->
         <Grid>
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
@@ -131,8 +146,69 @@
                 </StackPanel>
             </Border>
 
+            <!-- 白名单管理面板（T-26，F4）：全量条目元数据+逐项移除；开关随 IsWhitelistPanelOpen，
+                 非模态内嵌（与搜索面板同层风格）；不触判定链，任意五态可开 -->
+            <Border Grid.Row="1" Padding="12,8" Background="#FAFAFA"
+                    Visibility="{Binding IsWhitelistPanelOpen, Converter={StaticResource BoolToVisibility}}">
+                <StackPanel>
+                    <DockPanel LastChildFill="False">
+                        <TextBlock DockPanel.Dock="Left" Text="白名单管理" FontSize="14" FontWeight="SemiBold" />
+                        <Button DockPanel.Dock="Right" Command="{Binding ToggleWhitelistPanelCommand}"
+                                Content="收起" MinWidth="56" MinHeight="24" />
+                    </DockPanel>
+                    <TextBlock Text="移除后重新扫描，该进程即恢复参与判定；匹配按进程名（同名进程一并排除）。"
+                               Foreground="Gray" FontSize="11" Margin="0,2,0,6" TextWrapping="Wrap" />
+                    <!-- 空态（PRD §3.7 风格：非错误，轻文案） -->
+                    <TextBlock Text="白名单为空——在列表中右键进程并选择“此进程永不推荐”即可加入。"
+                               Foreground="Gray">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasWhitelistEntries}" Value="False">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <ScrollViewer MaxHeight="240" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding WhitelistEntries}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="#DDD" BorderThickness="0,0,0,1" Padding="0,4">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="150" />
+                                                <ColumnDefinition Width="130" />
+                                                <ColumnDefinition Width="130" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding Name}" FontWeight="SemiBold"
+                                                       ToolTip="{Binding Name}" />
+                                            <TextBlock Grid.Column="1" Text="{Binding AddedAtText}" Foreground="Gray"
+                                                       ToolTip="添加时间" />
+                                            <TextBlock Grid.Column="2" Text="{Binding NoteText}" Foreground="Gray"
+                                                       ToolTip="备注" />
+                                            <TextBlock Grid.Column="3" Text="{Binding PathText}" Foreground="#555"
+                                                       Margin="8,0,8,0" TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding PathText}" />
+                                            <Button Grid.Column="4" Content="移除" MinWidth="56" MinHeight="22"
+                                                    Command="{Binding DataContext.RemoveWhitelistEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip="从白名单移除；重新扫描后该进程恢复参与判定" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </StackPanel>
+            </Border>
+
             <!-- 三级列表：组=Expander（🚫 默认折叠仅计数）；行=Expander 展开六要素（R02/F2） -->
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="8,4">
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="8,4">
                 <ItemsControl ItemsSource="{Binding Groups}"
                               IsEnabled="{Binding Availability.ListInputEnabled}">
                     <ItemsControl.ItemTemplate>
@@ -207,10 +283,11 @@
                 </ItemsControl>
             </ScrollViewer>
 
-            <!-- 列表尾部：白名单排除计数（F2 折叠区语义；有排除项才呈现；完整白名单管理面板归 T-26） -->
-            <TextBlock Grid.Row="2" Margin="12,2">
-                <TextBlock.Style>
-                    <Style TargetType="TextBlock">
+            <!-- 列表尾部：白名单排除计数折叠区（F2，T-26 升级为 Expander：默认折叠仅计数可见不占焦点，
+                 展开列出被排除进程；零排除整区隐藏） -->
+            <Expander Grid.Row="3" Margin="12,2" IsExpanded="False">
+                <Expander.Style>
+                    <Style TargetType="Expander">
                         <Setter Property="Visibility" Value="Visible" />
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding WhitelistedExcludedCount}" Value="0">
@@ -218,12 +295,28 @@
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
-                </TextBlock.Style>
-                <Run Text="因白名单排除 " Foreground="Gray" />
-                <Run Text="{Binding WhitelistedExcludedCount, Mode=OneWay}" Foreground="Gray" />
-                <Run Text=" 项" Foreground="Gray" />
-                <Run Text="（折叠不可见，可经搜索框查询）" Foreground="DarkGray" FontSize="11" />
-            </TextBlock>
+                </Expander.Style>
+                <Expander.Header>
+                    <TextBlock>
+                        <Run Text="因白名单排除 " Foreground="Gray" />
+                        <Run Text="{Binding WhitelistedExcludedCount, Mode=OneWay}" Foreground="Gray" FontWeight="SemiBold" />
+                        <Run Text=" 项" Foreground="Gray" />
+                        <Run Text="（展开查看；可经搜索框查询）" Foreground="DarkGray" FontSize="11" />
+                    </TextBlock>
+                </Expander.Header>
+                <ItemsControl ItemsSource="{Binding WhitelistedExcludedRows}" Margin="16,2,0,4">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Foreground="Gray">
+                                <Run Text="{Binding Name, Mode=OneWay}" />
+                                <Run Text=" (PID " />
+                                <Run Text="{Binding Pid, Mode=OneWay}" />
+                                <Run Text=")" />
+                            </TextBlock>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Expander>
         </Grid>
     </DockPanel>
 </Window>

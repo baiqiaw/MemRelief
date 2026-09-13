@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
 using System.Windows.Input;
 using MemRelief.App.Hosting;
 using MemRelief.App.Releasing;
@@ -25,6 +27,8 @@ namespace MemRelief.App.ViewModels;
 /// 释放中关窗=取消未开始树并等待收尾（<see cref="PrepareClose"/>/<see cref="SettleReleaseAsync"/>）；
 /// 提权重启编排（入口+失败项清单+UAC 拒绝停留）与重启链失败项高亮（PRD F3-6）。
 /// 概览采样链已随 #38 步骤 2 裁决删除（概览条子 VM 独立采样，OverviewText 唯一格式化实现）。
+/// 白名单管理面板（T-26，F4）：条目元数据列表+逐项移除（移除后重扫恢复参与判定，不即时重判）、
+/// 折叠区排除项清单投影、"打开日志/数据目录"入口（F6）。
 /// </summary>
 public sealed class MainViewModel : INotifyPropertyChanged
 {
@@ -38,6 +42,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly Action<Action> _marshal;
     private readonly IReadOnlyList<RestartFailedItem>? _restartFailedItems;
     private readonly Action? _shutdown;
+    private readonly Action<string> _shellOpen;
 
     private IReadOnlyList<Classification> _classifications = [];
     private ScanResult? _snapshot;
@@ -52,6 +57,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string? _whitelistNotice;
     private ReleaseReport? _lastReleaseReport;
     private string? _releaseFailedMessage;
+    private bool _isWhitelistPanelOpen;
+    private IReadOnlyList<WhitelistEntryRow> _whitelistEntries = [];
+    private IReadOnlyList<WhitelistedExcludedRow> _whitelistedExcludedRows = [];
 
     // 释放编排在途状态（一次释放一个生命周期；字段仅在 UI 线程读写——事件经 _marshal 编组后触碰）
     private Task<ReleaseReport>? _releaseTask;
@@ -69,6 +77,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// 日志存储/确认弹窗/重启器可空注入（null=对应编排不启用，LogPersisted 恒 null=未尝试）。
     /// marshal：后台线程事件到 UI 线程的编组通道（null=同步直调，测试便利）。restartFailedItems：
     /// T-27 重启参数解析出的上次失败项清单（名称+可执行路径，不落盘），扫描收口后高亮不自动勾选。
+    /// shellOpen 可注入（T-26 目录入口）：shell 打开动作单点，默认 UseShellExecute；测试注入记录委托。
     /// </summary>
     public MainViewModel(
         UiStateMachine stateMachine,
@@ -81,7 +90,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IAppRestarter? restarter = null,
         Action<Action>? marshal = null,
         IReadOnlyList<RestartFailedItem>? restartFailedItems = null,
-        Action? shutdown = null)
+        Action? shutdown = null,
+        Action<string>? shellOpen = null)
     {
         StateMachine = stateMachine;
         _coordinator = coordinator;
@@ -94,6 +104,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _restartFailedItems = restartFailedItems;
         _shutdown = shutdown;
         _marshal = marshal ?? (action => action());
+        _shellOpen = shellOpen ?? DefaultShellOpen;
         StateMachine.StateChanged += (_, _) => OnStateChanged();
         StartScanCommand = new RelayCommand(
             () => _ = StartScanAsync(),
@@ -116,6 +127,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RestartElevatedCommand = new RelayCommand(
             RestartElevated,
             () => CanRestartElevated && _restarter is not null);
+        ToggleWhitelistPanelCommand = new RelayCommand(ToggleWhitelistPanel);
+        RemoveWhitelistEntryCommand = new RelayCommand<object>(
+            o => _ = RemoveWhitelistEntryAsync(o as WhitelistEntryRow),
+            o => o is WhitelistEntryRow);
+        OpenLogFileCommand = new RelayCommand(OpenLogFile, () => _logStore is not null);
+        OpenDataDirectoryCommand = new RelayCommand(OpenDataDirectory, () => _logStore is not null);
         // 启动装载即感知白名单损坏自愈（IWhitelistStore.Recovery 唯一通道，storage.md §4.1）；
         // 提示携带 Recovery.Reason：备份失败变体（原文件原地保留）与已重置变体的事实不同，禁固定文案掩盖差异
         if (whitelistStore.Recovery is not null)
@@ -161,6 +178,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     /// <summary>因白名单排除的进程数（F2 列表尾部计数；加白即时同步，③.s4 裁决⑥）。</summary>
     public int WhitelistedExcludedCount { get; private set; }
+
+    /// <summary>折叠区排除项清单（F2"因白名单排除 N 项"展开可见，消除列表外黑箱）。</summary>
+    public IReadOnlyList<WhitelistedExcludedRow> WhitelistedExcludedRows
+    {
+        get => _whitelistedExcludedRows;
+        private set => SetField(ref _whitelistedExcludedRows, value);
+    }
 
     /// <summary>上次成功扫描的快照时间戳（PRD §3.6 已展示态“显示快照时间戳”）。</summary>
     public DateTime? LastScanTakenAtUtc
@@ -208,7 +232,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// <summary>释放失败提示可见性（XAML 布尔转换绑定用）。</summary>
     public bool HasReleaseFailed => _releaseFailedMessage != null;
 
-    /// <summary>轻提示（白名单自愈/加白失败/提权重启编排反馈；null=无提示，同一展示位）。</summary>
+    /// <summary>轻提示（白名单自愈/加白与移除失败/面板刷新失败/目录入口打开失败/提权重启编排反馈；
+    /// null=无提示，同一展示位）。</summary>
     public string? WhitelistNotice
     {
         get => _whitelistNotice;
@@ -223,6 +248,29 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     /// <summary>轻提示可见性（XAML 布尔转换绑定用）。</summary>
     public bool HasWhitelistNotice => _whitelistNotice != null;
+
+    /// <summary>白名单管理面板展开态（工具栏入口开关；非状态机态——面板不触判定链，任意五态可用）。</summary>
+    public bool IsWhitelistPanelOpen
+    {
+        get => _isWhitelistPanelOpen;
+        private set => SetField(ref _isWhitelistPanelOpen, value);
+    }
+
+    /// <summary>白名单面板条目行（存储全量条目的只读投影；每次打开/移除后整体替换）。</summary>
+    public IReadOnlyList<WhitelistEntryRow> WhitelistEntries
+    {
+        get => _whitelistEntries;
+        private set
+        {
+            if (SetField(ref _whitelistEntries, value))
+            {
+                OnPropertyChanged(nameof(HasWhitelistEntries));
+            }
+        }
+    }
+
+    /// <summary>面板非空标记（XAML 空态文案切换绑定用）。</summary>
+    public bool HasWhitelistEntries => _whitelistEntries.Count > 0;
 
     /// <summary>最近一次释放结果报告（呈现经 <see cref="ReleaseReportText"/>；回填 LogPersisted 时换实例）。</summary>
     public ReleaseReport? LastReleaseReport
@@ -274,6 +322,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     /// <summary>一键释放命令（T-16：确认弹窗→Execute 编排；仅已展示态且 releaser 已注入时可用）。</summary>
     public ICommand ReleaseCommand { get; }
+
+    /// <summary>白名单管理面板开关（T-26，F4 工具栏入口；不触判定链，任意态可用）。</summary>
+    public ICommand ToggleWhitelistPanelCommand { get; }
+
+    /// <summary>逐项移除命令（T-26，F4；参数=面板条目行）。</summary>
+    public ICommand RemoveWhitelistEntryCommand { get; }
+
+    /// <summary>打开日志文件入口（T-26，F6；日志尚未生成时打开所在数据目录）。</summary>
+    public ICommand OpenLogFileCommand { get; }
+
+    /// <summary>打开数据目录入口（T-26，F6；日志所在目录=用户数据目录锚点）。</summary>
+    public ICommand OpenDataDirectoryCommand { get; }
 
     /// <summary>关闭报告命令（结果展示态回已展示，PRD §3.6 离开条件）。</summary>
     public ICommand CloseReportCommand { get; }
@@ -567,6 +627,140 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// 白名单管理面板开关（T-26，F4）：每次打开重取存储全量；常开期间不追踪加白等外部变更
+    /// （下次打开/移除刷新生效——非模态面板与主列表并存，实时追踪属 T-16 后的交互增强项）。
+    /// 面板不触判定链与状态机（任意五态可用——移除仅写存储，恢复判定走重扫，PRD F4）。
+    /// </summary>
+    public void ToggleWhitelistPanel()
+    {
+        IsWhitelistPanelOpen = !IsWhitelistPanelOpen;
+        if (IsWhitelistPanelOpen)
+        {
+            TryRefreshWhitelistPanel();
+        }
+    }
+
+    /// <summary>
+    /// 逐项移除（T-26，F4）：按名写存储（挪离 UI 线程，存储侧 OrdinalIgnoreCase 语义）→
+    /// 刷新面板（行消失即反馈）并清旧失败提示。移除后不即时重判——恢复参与判定走重扫
+    /// （PRD F4"移除后重新扫描即恢复参与判定"，与加白的即时性裁决⑥刻意分立）。
+    /// 失败链：盘写异常提示原因，条目保留；目标已不存在（面板常开期间被移除）照常刷新，不误报成败；
+    /// 刷新段兜底（写盘已成功，失败仅提示不静默——对齐 WhitelistAsync 两段式先例，命令为 fire-and-forget）。
+    /// </summary>
+    public async Task RemoveWhitelistEntryAsync(WhitelistEntryRow? row)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await Task.Run(() => _whitelistStore.Remove(row.Name)).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            WhitelistNotice = $"移除白名单失败：{ex.Message}";
+            return;
+        }
+
+        // 刷新成功才清旧失败提示；刷新自身失败时保留其失败提示（防兜底提示被无差别清除）
+        if (TryRefreshWhitelistPanel())
+        {
+            WhitelistNotice = null;
+        }
+    }
+
+    /// <summary>面板刷新兜底壳：绑定订阅方异常不因 fire-and-forget 静默（对齐 StartScanAsync 全路径兜底模式）。
+    /// 返回刷新是否成功，供调用方决定是否清除先前提示。</summary>
+    private bool TryRefreshWhitelistPanel()
+    {
+        try
+        {
+            // List() 为锁内内存拷贝（KB 级常态亚毫秒）；与在途盘写互斥的持锁窗口由存储口径承担，不挪线程
+            WhitelistEntries = _whitelistStore.List().Select(ToEntryRow).ToList();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            WhitelistNotice = $"白名单面板刷新失败：{ex.Message}";
+            return false;
+        }
+    }
+
+    private static WhitelistEntryRow ToEntryRow(WhitelistEntry entry) => new(
+        entry.Name,
+        DisplayText.WhitelistAddedAt(entry.AddedAtUtc),
+        string.IsNullOrWhiteSpace(entry.Path) ? DisplayText.EmptyValue : entry.Path,
+        string.IsNullOrWhiteSpace(entry.Note) ? DisplayText.EmptyValue : entry.Note);
+
+    /// <summary>打开日志文件（T-26，F6）：文件在位直开；尚未生成（从未释放过）打开所在数据目录。</summary>
+    private void OpenLogFile()
+    {
+        if (_logStore is null)
+        {
+            return; // CanExecute 已挡，双保险
+        }
+
+        var path = _logStore.LogFilePath;
+        if (File.Exists(path))
+        {
+            OpenInShell(path);
+        }
+        else
+        {
+            OpenDataDirectory();
+        }
+    }
+
+    /// <summary>打开数据目录（T-26，F6）：日志所在目录=用户数据目录锚点（storage 法-4 同目录）。</summary>
+    private void OpenDataDirectory()
+    {
+        if (_logStore is null)
+        {
+            return;
+        }
+
+        var directory = Path.GetDirectoryName(_logStore.LogFilePath);
+        if (string.IsNullOrEmpty(directory))
+        {
+            return;
+        }
+
+        try
+        {
+            // 目录未建（从未写过盘）先建，防 shell 打开落空；建失败（盘不可用/权限拒绝）与打开失败同收口
+            Directory.CreateDirectory(directory);
+        }
+        catch (Exception ex)
+        {
+            WhitelistNotice = $"打开失败：{ex.Message}";
+            return;
+        }
+
+        OpenInShell(directory);
+    }
+
+    private void OpenInShell(string path)
+    {
+        try
+        {
+            _shellOpen(path);
+        }
+        catch (Exception ex)
+        {
+            // shell 打开失败（无默认程序/权限拒绝等环境态）：轻提示收口，不炸命令链
+            WhitelistNotice = $"打开失败：{ex.Message}";
+        }
+    }
+
+    private static void DefaultShellOpen(string path)
+    {
+        // using 释放 Process 句柄（打开动作不持有被启动程序的生命周期，防句柄依赖终结器）
+        using var _ = Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+    }
+
+    /// <summary>
     /// 释放结果收口（ReleaseCompleted 事件编组后的唯一收口路径，PRD §3.6“全部树完成/取消”同入口）：
     /// 存报告 → 已结束项移除（PRD F3-6，幸存行保留用户勾选/展开态）→ 状态机释放完成转换
     /// （释放中→结果展示）→ 日志追加编排单路径（IReleaseLogStore.Append，ReleaseId 幂等去重——
@@ -779,8 +973,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
             .Select(level => new LevelGroup(level, ProjectRows(classifications, level, index)))
             .Where(g => g.Rows.Count > 0)
             .ToList();
-        WhitelistedExcludedCount = classifications.Count(c => c.Level == Level.Whitelisted);
+        // 折叠区排除项清单（T-26，F2）：单次物化 Whitelisted 集，计数与投影同源为结构事实；
+        // 快照缺项（契约违约脏数据）以"未知进程"占位不炸投影（PID 由行模板统一承载，防重复拼接）
+        var whitelisted = classifications.Where(c => c.Level == Level.Whitelisted).ToList();
+        WhitelistedExcludedCount = whitelisted.Count;
         OnPropertyChanged(nameof(WhitelistedExcludedCount));
+        WhitelistedExcludedRows = whitelisted
+            .Select(c => index.TryGet(c.Pid, out var process)
+                ? new WhitelistedExcludedRow(c.Pid, process.Name)
+                : new WhitelistedExcludedRow(c.Pid, "未知进程"))
+            .ToList();
         if (_restartFailedItems is { Count: > 0 })
         {
             foreach (var row in Groups.SelectMany(g => g.Rows))
@@ -861,6 +1063,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ReleaseCommand));
         OnPropertyChanged(nameof(CloseReportCommand));
         OnPropertyChanged(nameof(RestartElevatedCommand));
+        OnPropertyChanged(nameof(ToggleWhitelistPanelCommand));
+        OnPropertyChanged(nameof(RemoveWhitelistEntryCommand));
+        OnPropertyChanged(nameof(OpenLogFileCommand));
+        OnPropertyChanged(nameof(OpenDataDirectoryCommand));
         OnPropertyChanged(nameof(Availability));
         OnPropertyChanged(nameof(IsScanning));
         OnPropertyChanged(nameof(Classifications));
@@ -892,3 +1098,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
 /// <summary>搜索结果行（QueryResult 的文案投影：判定结果+依据，R02 搜索框输出）。</summary>
 public sealed record SearchResultRow(int Pid, string Name, string OutcomeText, string ReasonText);
+
+/// <summary>
+/// 白名单面板条目行（T-26，WhitelistEntry 只读投影）：名称/添加时间本地文案/路径/备注；
+/// 可空元数据（路径/备注）以"—"显式占位（PRD F2 空值口径同源）。
+/// </summary>
+public sealed record WhitelistEntryRow(string Name, string AddedAtText, string PathText, string NoteText);
+
+/// <summary>折叠区排除项行（T-26，F2"因白名单排除 N 项"展开清单：PID+进程名）。</summary>
+public sealed record WhitelistedExcludedRow(int Pid, string Name);

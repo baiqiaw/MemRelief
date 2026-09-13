@@ -56,7 +56,8 @@ public class ListPresentationTests
     ];
 
     internal static (MainViewModel Vm, FakeScanner Scanner, FakeRules Rules, FakeWhitelistStore Whitelist) NewVm(
-        FakeScanner? scanner = null, FakeRules? rules = null, FakeWhitelistStore? whitelist = null)
+        FakeScanner? scanner = null, FakeRules? rules = null, FakeWhitelistStore? whitelist = null,
+        IReleaseLogStore? logStore = null, Action<string>? shellOpen = null)
     {
         scanner ??= new FakeScanner { OnTakeSnapshot = () => Task.FromResult(NewSnapshot()) };
         rules ??= new FakeRules { Result = NewClassifications() };
@@ -64,7 +65,8 @@ public class ListPresentationTests
         var coordinator = new ScanCoordinator(
             scanner, rules, new StaticRulePackStore(),
             new ClassificationContext(1, "u"), () => whitelist.Snapshot());
-        var vm = new MainViewModel(new UiStateMachine(), coordinator, rules, whitelist);
+        var vm = new MainViewModel(new UiStateMachine(), coordinator, rules, whitelist,
+            logStore: logStore, shellOpen: shellOpen);
         return (vm, scanner, rules, whitelist);
     }
 

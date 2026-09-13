@@ -6,8 +6,9 @@ namespace MemRelief.App.Text;
 /// </summary>
 public static class OverviewText
 {
-    /// <summary>无数据占位（读失败与降级备用位共用；降级仅备用位、读失败三数值全占位）。</summary>
-    public const string Placeholder = "—";
+    /// <summary>无数据占位（读失败与降级备用位共用；降级仅备用位、读失败三数值全占位）。
+    /// 引用 <see cref="DisplayText.EmptyValue"/>：同字面量单一定义点（DisplayText 为空值口径唯一承载）。</summary>
+    public const string Placeholder = DisplayText.EmptyValue;
 
     /// <summary>口径说明（PRD F5 处理逻辑原文承载）：占用率仅统计使用中、备用属可回收缓存、
     /// 高占用未必是内存压力。</summary>

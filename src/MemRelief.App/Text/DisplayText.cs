@@ -19,6 +19,14 @@ internal static class DisplayText
     /// <summary>PRD F2 空值口径：无四类来源时的来源文案。</summary>
     public const string NoSource = "无（手动启动）";
 
+    /// <summary>空值占位（路径/备注等可空元数据的显式呈现，同概览"—"口径，T-26）。</summary>
+    public const string EmptyValue = "—";
+
+    /// <summary>白名单添加时间文案（T-26）：存储 Utc → 本地（同快照时间戳的 Utc→本地转换口径；
+    /// 分钟精度——面板行内展示，秒位省略，与快照时间戳 yyyy-MM-dd HH:mm:ss 刻意分立）。</summary>
+    public static string WhitelistAddedAt(DateTime addedAtUtc) =>
+        addedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+
     /// <summary>原因说明：逐条依据按行拼接（顺序即 Classify 产出序，冲突消解依据可追溯）。</summary>
     public static string Reason(IReadOnlyList<Basis> bases) =>
         bases.Count == 0 ? "未命中任何规则" : string.Join("\n", bases.Select(ReasonOne));

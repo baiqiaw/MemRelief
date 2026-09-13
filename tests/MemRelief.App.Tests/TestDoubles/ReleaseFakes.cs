@@ -5,8 +5,9 @@ using MemRelief.Core.Storage;
 
 namespace MemRelief.App.Tests.TestDoubles;
 
-/// <summary>释放日志存储假实现：记录 Append 调用与报告引用，结果可定制（T-16 日志编排单路径测试）。</summary>
-internal sealed class FakeReleaseLogStore : IReleaseLogStore
+/// <summary>释放日志存储假实现：记录 Append 调用与报告引用，结果可定制（T-16 日志编排单路径测试）。
+/// logFilePath 可定制（T-26 目录入口测试：临时目录/不存在路径/被占用路径场景），缺省沿用原硬编码。</summary>
+internal sealed class FakeReleaseLogStore(string? logFilePath = null) : IReleaseLogStore
 {
     public int AppendCalls { get; private set; }
 
@@ -15,7 +16,7 @@ internal sealed class FakeReleaseLogStore : IReleaseLogStore
     /// <summary>Append 返回结果（默认成功；可定制为失败以驱动“本次结果未留痕”）。</summary>
     public ReleaseLogAppendResult NextResult { get; set; } = new(Persisted: true);
 
-    public string LogFilePath => @"C:\fake\releases.jsonl";
+    public string LogFilePath { get; } = logFilePath ?? @"C:\fake\releases.jsonl";
 
     public ReleaseLogAppendResult Append(ReleaseReport report)
     {

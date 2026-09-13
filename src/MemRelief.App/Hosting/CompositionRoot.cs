@@ -46,6 +46,10 @@ public static class CompositionRoot
         // storage 模块：白名单存储（T-11 真实实现，T-15 接线——构造即装载，损坏自愈经 Recovery 通道提示）
         IWhitelistStore whitelistStore = new WhitelistStore();
 
+        // storage 模块：释放日志存储（T-12 真实实现；T-16 起经参数透传——Append 编排与
+        // "打开日志/数据目录"入口（T-26，以 LogFilePath 为锚点，与白名单同目录=用户数据目录）
+        // 共用同一实例；缺省 null=两类编排均不启用，生产经 CreateMainWindow 全量注入）
+
         // 编排方环境参数（契约：纯函数约束下环境信息一律参数注入，data-contracts §1.1）
         var context = new ClassificationContext(Environment.ProcessId, Environment.UserName);
 
