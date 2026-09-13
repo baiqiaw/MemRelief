@@ -127,6 +127,7 @@ public sealed class RulesEngine : IRulesEngine
     {
         var treeBytes = ComputeTreePrivateBytes(scan.Snapshots);
         var orphanPids = CollectOrphanPids(scan.Snapshots);
+        var pathByPid = scan.Snapshots.ToDictionary(x => x.Pid, x => x.ExecutablePath);
         var hasGlobalFailure = scan.Failures.Any(f => !f.Pid.HasValue);
         var failuresByPid = scan.Failures
             .Where(f => f.Pid.HasValue)
@@ -138,7 +139,7 @@ public sealed class RulesEngine : IRulesEngine
         {
             failuresByPid.TryGetValue(p.Pid, out var failures);
             result.Add(ClassifyOne(p, whitelist, pack, ctx, hasGlobalFailure, failures,
-                treeBytes.GetValueOrDefault(p.Pid), orphanPids));
+                treeBytes.GetValueOrDefault(p.Pid), orphanPids, pathByPid));
         }
         return result;
     }
@@ -152,7 +153,8 @@ public sealed class RulesEngine : IRulesEngine
         bool hasGlobalFailure,
         List<SignalFailure>? failures,
         long treeBytes,
-        HashSet<int> orphanPids)
+        HashSet<int> orphanPids,
+        Dictionary<int, string?> pathByPid)
     {
         var bases = new List<Basis>();
         var level = Level.Unmatched;
@@ -362,10 +364,14 @@ public sealed class RulesEngine : IRulesEngine
             level = Promote(level, Level.Recommend);
         }
 
-        // 旁证降级（口径 #3）：✅ 候选同目录存在其他存活进程，剔除孤儿命中者与自身 → 降⚠️
+        // 旁证降级（口径 #3）：✅ 候选同目录存在其他存活进程，剔除孤儿命中者、自身与同路径同名实例（集群互不作证，
+        // PRD v1.5 / issue #46：同路径同名=同一程序多实例，不构成「在用组件」旁证，crashpad 主程序+组件形态不受影响）→ 降⚠️
         if (hasRecommendBasis && !compromised && level == Level.Recommend && s.SameDirAlivePids.Count > 0)
         {
-            var witness = s.SameDirAlivePids.Where(pid => pid != p.Pid && !orphanPids.Contains(pid)).ToList();
+            var witness = s.SameDirAlivePids.Where(pid =>
+                pid != p.Pid &&
+                !orphanPids.Contains(pid) &&
+                !Scanner.SignalRules.PathExactEquals(pathByPid.GetValueOrDefault(pid), p.ExecutablePath)).ToList();
             if (witness.Count > 0)
             {
                 bases.Add(new Basis(3, "同目录存在存活进程，疑似在用组件"));

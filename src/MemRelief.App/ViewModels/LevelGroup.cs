@@ -19,6 +19,31 @@ public sealed class LevelGroup : INotifyPropertyChanged
         Rows = rows.OrderByDescending(r => r.TreePrivateBytes).ThenBy(r => r.Pid).ToList();
         _isExpanded = level != Level.Protected;
         Title = DisplayText.GroupTitle(level, Rows.Count);
+        // T-28 同名聚合（issue #46）：同名 ≥2 实例聚合为组行；DisplayRows=单实例行+聚合组行按 Rows 序混排
+        //（聚合行替换其首成员位置）。Rows 保持平铺，勾选/释放/加白逻辑仍以平铺行为唯一事实源。
+        Aggregates = Rows.GroupBy(r => r.ProcessName, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() >= 2)
+            .Select(g => new ProcessAggregateRow(g.Key, g.ToList()))
+            .ToList();
+        var aggregateByPid = Aggregates.SelectMany(a => a.Rows.Select(r => (Pid: r.Pid, Aggregate: a)))
+            .ToDictionary(x => x.Pid, x => x.Aggregate);
+        var emittedAggregates = new HashSet<ProcessAggregateRow>();
+        var display = new List<object>();
+        foreach (var row in Rows)
+        {
+            if (aggregateByPid.TryGetValue(row.Pid, out var aggregate))
+            {
+                if (emittedAggregates.Add(aggregate))
+                {
+                    display.Add(aggregate);   // 聚合行替换其首成员位置，同组其余成员不再出现
+                }
+            }
+            else
+            {
+                display.Add(row);
+            }
+        }
+        DisplayRows = display;
     }
 
     public Level Level { get; }
@@ -31,6 +56,12 @@ public sealed class LevelGroup : INotifyPropertyChanged
 
     /// <summary>组内行（树合计降序；组实例随列表整体替换，不逐项变更）。</summary>
     public IReadOnlyList<ClassificationRow> Rows { get; }
+
+    /// <summary>同名聚合组行（T-28：同名 ≥2 实例；勾选/加白逻辑的旁路投影，非事实源）。</summary>
+    public IReadOnlyList<ProcessAggregateRow> Aggregates { get; }
+
+    /// <summary>渲染行序列（单实例行+聚合组行按 Rows 序混排；XAML 绑定面，经 DataType 选模板）。</summary>
+    public IReadOnlyList<object> DisplayRows { get; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

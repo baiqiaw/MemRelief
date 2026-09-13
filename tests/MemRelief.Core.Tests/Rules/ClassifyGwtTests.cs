@@ -156,4 +156,38 @@ public class ClassifyGwtTests
         Assert.Equal(Level.Caution, byId[15].Level);
         Assert.Contains(byId[15].Bases, b => b.SignalId == 0 && b.Detail.Contains("元数据不可读"));
     }
+
+    // GWT-14（PRD v1.5 / issue #46）：同目录同名集群互不为旁证——同路径同名多实例互相作证=没有作证，
+    // 各自独立判定：无窗口+无连接+>50MB → ✅（node.exe 运行时集群形态）
+    [Fact]
+    public void Gwt14_同目录同名集群_互不为旁证_各自独立判定()
+    {
+        const string nodePath = @"C:\Program Files\nodejs\node.exe";
+        var nodes = new List<ProcessSnapshot>();
+        foreach (var pid in new[] { 21, 22, 23 })
+        {
+            var others = new[] { 21, 22, 23 }.Where(p => p != pid);
+            nodes.Add(Snap.Clean(pid, name: "node.exe", path: nodePath, bytes: 600 * Snap.Mb,
+                signals: Snap.CleanSignals() with { SameDirAlivePids = new HashSet<int>(others) }));
+        }
+        var byId = Classify(Snap.Scan(nodes.ToArray()));
+        Assert.All(byId.Values, c =>
+        {
+            Assert.Equal(Level.Recommend, c.Level);
+            Assert.DoesNotContain(c.Bases, b => b.SignalId == 3);
+        });
+    }
+
+    // GWT-14 对照：旁证集合剔除同名实例后仍剩不同名存活 → 旁证成立 → ⚠️（同名剔除不得误伤不同名旁证）
+    [Fact]
+    public void Gwt14对照_剔除同名后不同名旁证仍成立_降谨慎级()
+    {
+        var witness = Snap.Clean(20, name: "launcher.exe", path: @"C:\Program Files\nodejs\launcher.exe");
+        var node1 = Snap.Clean(21, name: "node.exe", path: @"C:\Program Files\nodejs\node.exe",
+            signals: Snap.Orphan() with { SameDirAlivePids = new HashSet<int> { 20, 22 } });
+        var node2 = Snap.Clean(22, name: "node.exe", path: @"C:\Program Files\nodejs\node.exe");
+        var byId = Classify(Snap.Scan(witness, node1, node2));
+        Assert.Equal(Level.Caution, byId[21].Level);
+        Assert.Contains(byId[21].Bases, b => b.SignalId == 3);
+    }
 }

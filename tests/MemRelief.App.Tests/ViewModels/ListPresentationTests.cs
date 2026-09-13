@@ -366,4 +366,108 @@ public class ListPresentationTests
         Assert.Contains("taskschd.msc", row.ReviveHint);
         Assert.DoesNotContain("services.msc", row.ReviveHint);
     }
+
+    // —— T-28 同名聚合（issue #46）：同名 ≥2 聚合组行，单实例独立行，平铺 Rows 仍为逻辑事实源 ——
+
+    /// <summary>三个同名 node.exe 实例（✅，600/500/400MB）+ 单实例孤儿 a.exe。</summary>
+    private static (ScanResult Snapshot, IReadOnlyList<Classification> Classifications) NewClusterFixture()
+    {
+        ScanResult snapshot = new(
+            TakenAtUtc: T, ProcessCount: 4, DurationMs: 5,
+            Snapshots:
+            [
+                new ProcessSnapshot(21, 0, "node.exe", @"C:\Program Files\nodejs\node.exe", T, 600 * Mb),
+                new ProcessSnapshot(22, 0, "node.exe", @"C:\Program Files\nodejs\node.exe", T, 500 * Mb),
+                new ProcessSnapshot(23, 0, "node.exe", @"C:\Program Files\nodejs\node.exe", T, 400 * Mb),
+                new ProcessSnapshot(100, 0, "a.exe", @"C:\apps\a.exe", T, 60 * Mb,
+                    Signals: new SignalSet(OrphanHint.ParentDead)),
+            ],
+            Failures: []);
+        IReadOnlyList<Classification> classifications =
+        [
+            new(21, Level.Recommend, [new Basis(4, "无窗口用户级应用")], 600 * Mb, false, [], false),
+            new(22, Level.Recommend, [new Basis(4, "无窗口用户级应用")], 500 * Mb, false, [], false),
+            new(23, Level.Recommend, [new Basis(4, "无窗口用户级应用")], 400 * Mb, false, [], false),
+            new(100, Level.Recommend, [new Basis(1, "孤儿进程（父进程已退出）")], 65 * Mb, false, [], false),
+        ];
+        return (snapshot, classifications);
+    }
+
+    [Fact]
+    public async Task 同名多实例_聚合成组行_单实例保持独立行()
+    {
+        var (snapshot, classifications) = NewClusterFixture();
+        var vm = await ScannedVmAsync(
+            new FakeScanner { OnTakeSnapshot = () => Task.FromResult(snapshot) },
+            new FakeRules { Result = classifications });
+
+        var group = vm.Groups.Single(g => g.Level == Level.Recommend);
+        // 平铺 Rows 保持事实源（4 行，树合计降序）
+        Assert.Equal(new[] { 21, 22, 23, 100 }, group.Rows.Select(r => r.Pid));
+
+        // 渲染面：node ×3 聚合为一组行 + a.exe 单实例行；聚合行替换首成员位置（树合计降序在最前）
+        var aggregate = Assert.Single(group.DisplayRows.OfType<ProcessAggregateRow>());
+        var single = Assert.Single(group.DisplayRows.OfType<ClassificationRow>());
+        Assert.Equal("node.exe", aggregate.ProcessName);
+        Assert.Equal(3, aggregate.Count);
+        Assert.Equal(new[] { 21, 22, 23 }, aggregate.Rows.Select(r => r.Pid));
+        Assert.Equal("node.exe ×3", aggregate.HeaderText);
+        Assert.Contains("1500", aggregate.TotalTreeSummary);
+        Assert.Equal(100, single.Pid);
+        Assert.IsType<ProcessAggregateRow>(group.DisplayRows[0]);
+        Assert.IsType<ClassificationRow>(group.DisplayRows[^1]);
+    }
+
+    [Fact]
+    public async Task 聚合组行勾选_写穿全部子项_部分态呈null()
+    {
+        var (snapshot, classifications) = NewClusterFixture();
+        var vm = await ScannedVmAsync(
+            new FakeScanner { OnTakeSnapshot = () => Task.FromResult(snapshot) },
+            new FakeRules { Result = classifications });
+
+        var aggregate = vm.Groups[0].DisplayRows.OfType<ProcessAggregateRow>().Single();
+        Assert.True(aggregate.IsChecked);                        // ✅ 默认全勾
+
+        aggregate.IsChecked = false;                             // 组级取消 → 写穿全部子项
+        Assert.All(aggregate.Rows, r => Assert.False(r.IsChecked));
+        Assert.False(aggregate.IsChecked);
+
+        aggregate.Rows[0].IsChecked = true;                      // 子项单独勾回 → 组呈部分态
+        Assert.Null(aggregate.IsChecked);
+
+        // 平铺口径收集释放选择（组行不在 Rows，勾选子项即进入释放；100 为✅级默认勾选保留）
+        Assert.Equal(new[] { 21, 100 }, vm.Groups[0].Rows.Where(r => r.IsChecked).Select(r => r.Pid));
+    }
+
+    [Fact]
+    public async Task 保护级同名聚合行_复选框禁用不可加白()
+    {
+        ScanResult snapshot = new(
+            TakenAtUtc: T, ProcessCount: 2, DurationMs: 5,
+            Snapshots:
+            [
+                new ProcessSnapshot(41, 0, "svchost.exe", @"C:\Windows\System32\svchost.exe", T, 80 * Mb),
+                new ProcessSnapshot(42, 0, "svchost.exe", @"C:\Windows\System32\svchost.exe", T, 60 * Mb),
+            ],
+            Failures: []);
+        var rules = new FakeRules
+        {
+            Result =
+            [
+                new Classification(41, Level.Protected, [new Basis(0, "系统保护名单命中：svchost.exe")],
+                    80 * Mb, null, [], true),
+                new Classification(42, Level.Protected, [new Basis(0, "系统保护名单命中：svchost.exe")],
+                    60 * Mb, null, [], true),
+            ],
+        };
+        var vm = await ScannedVmAsync(
+            new FakeScanner { OnTakeSnapshot = () => Task.FromResult(snapshot) }, rules);
+
+        var aggregate = Assert.Single(
+            vm.Groups.Single(g => g.Level == Level.Protected).DisplayRows.OfType<ProcessAggregateRow>());
+        Assert.False(aggregate.CanCheck);
+        Assert.False(aggregate.CanWhitelist);
+        Assert.False(aggregate.IsChecked);
+    }
 }

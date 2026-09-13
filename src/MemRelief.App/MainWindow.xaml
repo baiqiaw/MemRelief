@@ -4,59 +4,155 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:controls="clr-namespace:MemRelief.App"
+        xmlns:vm="clr-namespace:MemRelief.App.ViewModels"
         mc:Ignorable="d"
-        Height="720" Width="1024">
+        Height="720" Width="1024"
+        Background="{DynamicResource Brush.WindowBg}"
+        FontFamily="Microsoft YaHei UI">
     <Window.Resources>
-        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- 主题自合并：单测直构造窗口时无 Application 资源上下文，StaticResource 须本地可达 -->
+                <ResourceDictionary Source="Themes/Modern.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <!-- 列表行双模板（T-28 聚合）：DisplayRows 混排单实例行与聚合组行，经 DataType 隐式选模板；
+             视觉层样式收口 Themes/Modern.xaml（T-29），绑定面与命令管道保持不变 -->
+        <DataTemplate DataType="{x:Type vm:ClassificationRow}">
+            <!-- Tag 桥接根 VM 命令（ContextMenu 不在视觉树，经 PlacementTarget.Tag 可达）；
+                 菜单挂整行（PRD F4“列表项右键”）；🚫 行 CanWhitelist=false 菜单项自然禁用；
+                 IsHighlighted（提权失败项高亮）为本模板局部触发——聚合行无该属性，不进共享样式 -->
+            <Expander Tag="{Binding DataContext.WhitelistCommand, RelativeSource={RelativeSource AncestorType=Window}}">
+                <Expander.Style>
+                    <Style TargetType="Expander" BasedOn="{StaticResource RowExpander}">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsHighlighted}" Value="True">
+                                <Setter Property="Background" Value="{StaticResource Brush.WarnBg}" />
+                                <Setter Property="BorderBrush" Value="{StaticResource Brush.Caution}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Expander.Style>
+                <Expander.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="此进程永不推荐"
+                                  Command="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  ToolTip="加入白名单后立即从推荐列表移除，此后不再推荐（同名进程一并排除）" />
+                    </ContextMenu>
+                </Expander.ContextMenu>
+                <Expander.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                  IsEnabled="{Binding CanCheck}"
+                                  VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding DisplayName}" Margin="8,0,0,0" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding TreeSummary}" Foreground="{StaticResource Brush.TextSecondary}"
+                                   Margin="12,0,0,0" FontSize="12" />
+                    </StackPanel>
+                </Expander.Header>
+                <!-- 行详情：六要素（主进程/原因/来源/树合计/拉起提示 + 进程树层级） -->
+                <StackPanel Margin="26,6,4,6">
+                    <TextBlock Text="{Binding ReasonText}" TextWrapping="Wrap" />
+                    <TextBlock Margin="0,5,0,0">
+                        <Run Text="来源：" Foreground="{StaticResource Brush.TextSecondary}" />
+                        <Run Text="{Binding SourceText, Mode=OneWay}" />
+                    </TextBlock>
+                    <TextBlock Margin="0,3,0,0">
+                        <Run Text="{Binding TreeSummary, Mode=OneWay}" Foreground="{StaticResource Brush.TextSecondary}" />
+                    </TextBlock>
+                    <TextBlock Margin="0,3,0,0">
+                        <Run Text="拉起提示：" Foreground="{StaticResource Brush.TextSecondary}" />
+                        <Run Text="{Binding ReviveHint, Mode=OneWay}" />
+                    </TextBlock>
+                    <TextBlock Text="进程树：" Foreground="{StaticResource Brush.TextSecondary}" Margin="0,5,0,0" />
+                    <ItemsControl ItemsSource="{Binding TreeLines}"
+                                  FontFamily="Consolas" Margin="10,0,0,0" />
+                </StackPanel>
+            </Expander>
+        </DataTemplate>
+        <!-- 同名聚合组行（T-28）：头行=组级三态勾选+名称 ×N+树合计；展开=子行列表（隐式复用上行模板）；
+             右键加白传首个可加白子行（白名单按名匹配=全实例排除） -->
+        <DataTemplate DataType="{x:Type vm:ProcessAggregateRow}">
+            <Expander Style="{StaticResource RowExpander}"
+                      Tag="{Binding DataContext.WhitelistCommand, RelativeSource={RelativeSource AncestorType=Window}}">
+                <Expander.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="此程序全部实例永不推荐"
+                                  Command="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding WhitelistTarget}"
+                                  ToolTip="加入白名单后立即从推荐列表移除，此后不再推荐（按进程名匹配，全部实例一并排除）" />
+                    </ContextMenu>
+                </Expander.ContextMenu>
+                <Expander.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                  IsEnabled="{Binding CanCheck}"
+                                  IsThreeState="True"
+                                  VerticalAlignment="Center"
+                                  ToolTip="全选/全不选该组全部实例" />
+                        <TextBlock Text="{Binding HeaderText}" FontWeight="Bold" Margin="8,0,0,0" />
+                        <TextBlock Text="{Binding TotalTreeSummary}" Foreground="{StaticResource Brush.TextSecondary}"
+                                   Margin="12,0,0,0" FontSize="12" />
+                    </StackPanel>
+                </Expander.Header>
+                <ItemsControl ItemsSource="{Binding Rows}" Margin="16,2,0,4" />
+            </Expander>
+        </DataTemplate>
+        </ResourceDictionary>
     </Window.Resources>
     <DockPanel>
         <!-- 顶部概览条（R05/T-17）：独立控件+独立子 VM（三数值+口径说明+三时点刷新， lanes 隔离承载）；
              子 VM 注入归组合根接线（T-17 报告列管），未注入时控件自折叠，状态行照常呈现 -->
         <controls:OverviewBar DockPanel.Dock="Top" x:Name="OverviewBarHost" />
-        <Border DockPanel.Dock="Top" Padding="12,4" Background="#F4F4F4">
-            <TextBlock Text="{Binding StatusText}" Foreground="Gray" FontSize="11" />
-        </Border>
 
         <!-- 底部操作栏：开始扫描/一键释放/取消/关报告/提权重启；控件可用性=状态机矩阵唯一投影 -->
-        <Border DockPanel.Dock="Bottom" Padding="12,8" Background="#F4F4F4">
+        <Border DockPanel.Dock="Bottom" Background="{StaticResource Brush.Card}"
+                BorderBrush="{StaticResource Brush.Line}" BorderThickness="0,1,0,0" Padding="16,10">
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
-                    <Button Command="{Binding StartScanCommand}" Content="开始扫描" MinWidth="96" MinHeight="28" />
+                    <Button Command="{Binding StartScanCommand}" Content="开始扫描" MinWidth="110"
+                            Style="{StaticResource PrimaryButton}" />
                     <!-- 一键释放（T-16）：命令内含确认弹窗编排（N 树/X MB） -->
-                    <Button Command="{Binding ReleaseCommand}" Content="一键释放" MinWidth="96" MinHeight="28"
-                            Margin="8,0,0,0" />
+                    <Button Command="{Binding ReleaseCommand}" Content="一键释放" MinWidth="110"
+                            Style="{StaticResource DangerButton}" Margin="10,0,0,0" />
                     <!-- 取消（PRD F3-5，T-10 矩阵）：跳过未开始树，进行中树等待收尾 -->
-                    <Button Command="{Binding CancelReleaseCommand}" Content="取消" MinWidth="72" MinHeight="28"
-                            Margin="8,0,0,0" />
+                    <Button Command="{Binding CancelReleaseCommand}" Content="取消" MinWidth="80"
+                            Style="{StaticResource GhostButton}" Margin="10,0,0,0" />
                     <!-- 关闭报告（结果展示态回已展示） -->
-                    <Button Command="{Binding CloseReportCommand}" Content="关闭报告" MinWidth="72" MinHeight="28"
-                            Margin="8,0,0,0" />
+                    <Button Command="{Binding CloseReportCommand}" Content="关闭报告" MinWidth="80"
+                            Style="{StaticResource GhostButton}" Margin="10,0,0,0" />
                     <!-- 提权重启（T-16，PRD F3 触发）：可见性=矩阵态级×内容条件（预标项/报告失败项） -->
-                    <Button Command="{Binding RestartElevatedCommand}" Content="以管理员身份重启" MinWidth="120"
-                            MinHeight="28" Margin="8,0,0,0"
+                    <Button Command="{Binding RestartElevatedCommand}" Content="以管理员身份重启" MinWidth="130"
+                            Style="{StaticResource GhostButton}" Margin="10,0,0,0"
                             Visibility="{Binding CanRestartElevated, Converter={StaticResource BoolToVisibility}}"
                             ToolTip="重启并携带需管理员失败项清单，重启后自动重新扫描（失败项仅高亮，由您重新勾选）" />
-                    <ProgressBar IsIndeterminate="True" Width="120" Height="14" Margin="16,0,0,0"
+                    <ProgressBar IsIndeterminate="True" Width="120" Height="10" Margin="18,0,0,0"
                                  VerticalAlignment="Center"
                                  Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}" />
                 </StackPanel>
                 <!-- 扫描失败提示（PRD §3.7“扫描失败”行；与零推荐空态严格区分） -->
-                <TextBlock Text="{Binding ScanFailedMessage}" Foreground="Red" Margin="0,6,0,0"
+                <TextBlock Text="{Binding ScanFailedMessage}" Foreground="{StaticResource Brush.Danger}"
+                           Margin="0,6,0,0" TextWrapping="Wrap"
                            Visibility="{Binding HasScanFailed, Converter={StaticResource BoolToVisibility}}" />
                 <!-- 释放编排失败提示（规划失败/执行链违约兜底；与报告呈现严格区分） -->
-                <TextBlock Text="{Binding ReleaseFailedMessage}" Foreground="Red" Margin="0,6,0,0"
+                <TextBlock Text="{Binding ReleaseFailedMessage}" Foreground="{StaticResource Brush.Danger}"
+                           Margin="0,6,0,0" TextWrapping="Wrap"
                            Visibility="{Binding HasReleaseFailed, Converter={StaticResource BoolToVisibility}}" />
                 <!-- 轻提示（白名单自愈/加白与移除失败/面板刷新失败/目录入口打开失败/提权重启编排反馈，
                      storage.md §4.1 Recovery 通道；单一提示槽：任一后续操作成功即清除先前提示） -->
-                <TextBlock Text="{Binding WhitelistNotice}" Foreground="DarkGoldenrod" Margin="0,4,0,0"
+                <TextBlock Text="{Binding WhitelistNotice}" Foreground="{StaticResource Brush.WarnText}"
+                           Margin="0,5,0,0"
+                           TextWrapping="Wrap"
                            Visibility="{Binding HasWhitelistNotice, Converter={StaticResource BoolToVisibility}}" />
             </StackPanel>
         </Border>
 
         <!-- 释放结果报告（T-16，非模态面板，PRD §3.6 结果展示态；含双释放量/逐项/跳过说明/被拉起提示/日志结果） -->
-        <Border DockPanel.Dock="Top" Padding="12,8" Background="#EEF6EE">
+        <Border DockPanel.Dock="Top" Margin="12,8,12,0">
             <Border.Style>
-                <Style TargetType="Border">
+                <Style TargetType="Border" BasedOn="{StaticResource Card}">
+                    <Setter Property="BorderBrush" Value="{StaticResource Brush.RecommendLight}" />
                     <Setter Property="Visibility" Value="Collapsed" />
                     <Style.Triggers>
                         <DataTrigger Binding="{Binding Availability.CloseReportEnabled}" Value="True">
@@ -74,30 +170,40 @@
         <!-- 搜索框：全量判定查询（IRulesEngine.Query，R02）；可用性随矩阵。
              右侧工具栏（F4/F6，T-26）：白名单管理面板开关 + 打开日志/数据目录入口；
              三者不触判定链，可用性由命令自身承载（日志入口随存储注入），不属五态矩阵 -->
-        <Border DockPanel.Dock="Top" Padding="12,8">
+        <Border DockPanel.Dock="Top" Padding="16,10,16,4">
             <DockPanel LastChildFill="False">
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
                     <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                              IsEnabled="{Binding Availability.ListInputEnabled}"
-                             Width="320" MinHeight="28" VerticalContentAlignment="Center"
+                             Style="{StaticResource ModernTextBox}"
+                             Width="340" VerticalContentAlignment="Center"
                              ToolTip="输入进程名或 PID，查询任意进程（含列表外）的判定结果与依据">
                         <TextBox.InputBindings>
                             <KeyBinding Key="Enter" Command="{Binding SearchCommand}" />
                         </TextBox.InputBindings>
                     </TextBox>
-                    <Button Command="{Binding SearchCommand}" Content="查询" MinWidth="72" MinHeight="28" Margin="8,0,0,0"
+                    <Button Command="{Binding SearchCommand}" Content="查询" MinWidth="76"
+                            Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
                             IsEnabled="{Binding Availability.ListInputEnabled}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
-                    <Button Command="{Binding ToggleWhitelistPanelCommand}" MinWidth="96" MinHeight="28"
+                    <Button Command="{Binding ToggleWhitelistPanelCommand}" MinWidth="100"
+                            Style="{StaticResource GhostButton}"
                             Content="白名单管理"
                             ToolTip="查看全部白名单条目（含添加时间/路径/备注），支持逐项移除" />
-                    <Button Command="{Binding OpenLogFileCommand}" MinWidth="72" MinHeight="28" Margin="8,0,0,0"
+                    <Button Command="{Binding OpenLogFileCommand}" MinWidth="84"
+                            Style="{StaticResource GhostButton}" Margin="8,0,0,0"
                             Content="打开日志" ToolTip="打开释放历史日志文件（尚未生成时打开数据目录）" />
-                    <Button Command="{Binding OpenDataDirectoryCommand}" MinWidth="96" MinHeight="28" Margin="8,0,0,0"
+                    <Button Command="{Binding OpenDataDirectoryCommand}" MinWidth="96"
+                            Style="{StaticResource GhostButton}" Margin="8,0,0,0"
                             Content="数据目录" ToolTip="打开用户数据目录（白名单与日志所在位置）" />
                 </StackPanel>
             </DockPanel>
+        </Border>
+
+        <!-- 状态行（五态骨架映射+释放进度计数+报告可重扫提示） -->
+        <Border DockPanel.Dock="Top" Padding="16,0,16,6">
+            <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource Brush.TextSecondary}" FontSize="12" />
         </Border>
 
         <!-- 中部：搜索结果 / 白名单管理面板 / 三级列表 / 白名单排除计数折叠区 -->
@@ -110,9 +216,9 @@
             </Grid.RowDefinitions>
 
             <!-- 搜索结果面板（有状态文案时呈现；R02“含不可见原因”） -->
-            <Border Grid.Row="0" Padding="12,4" Background="#FAFAFA">
+            <Border Grid.Row="0" Margin="12,4">
                 <Border.Style>
-                    <Style TargetType="Border">
+                    <Style TargetType="Border" BasedOn="{StaticResource Card}">
                         <Setter Property="Visibility" Value="Visible" />
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding SearchStatusText}" Value="">
@@ -122,21 +228,24 @@
                     </Style>
                 </Border.Style>
                 <StackPanel>
-                    <TextBlock Text="{Binding SearchStatusText}" Foreground="Gray" />
+                    <TextBlock Text="{Binding SearchStatusText}" Foreground="{StaticResource Brush.TextSecondary}" />
                     <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
-                        <ItemsControl ItemsSource="{Binding SearchResults}" Margin="0,4,0,0">
+                        <ItemsControl ItemsSource="{Binding SearchResults}" Margin="0,6,0,0">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border BorderBrush="#DDD" BorderThickness="0,0,0,1" Padding="0,4">
+                                    <Border BorderBrush="{StaticResource Brush.Line}" BorderThickness="0,0,0,1"
+                                            Padding="2,6">
                                         <StackPanel>
                                             <TextBlock>
-                                                <Run Text="{Binding Name, Mode=OneWay}" />
+                                                <Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold" />
                                                 <Run Text=" (PID " />
                                                 <Run Text="{Binding Pid, Mode=OneWay}" />
                                                 <Run Text=") — " />
                                                 <Run Text="{Binding OutcomeText, Mode=OneWay}" FontWeight="Bold" />
                                             </TextBlock>
-                                            <TextBlock Text="{Binding ReasonText}" Foreground="#555" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding ReasonText}"
+                                                       Foreground="{StaticResource Brush.TextSecondary}"
+                                                       TextWrapping="Wrap" />
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>
@@ -148,19 +257,20 @@
 
             <!-- 白名单管理面板（T-26，F4）：全量条目元数据+逐项移除；开关随 IsWhitelistPanelOpen，
                  非模态内嵌（与搜索面板同层风格）；不触判定链，任意五态可开 -->
-            <Border Grid.Row="1" Padding="12,8" Background="#FAFAFA"
+            <Border Grid.Row="1" Margin="12,4" Style="{StaticResource Card}"
                     Visibility="{Binding IsWhitelistPanelOpen, Converter={StaticResource BoolToVisibility}}">
                 <StackPanel>
                     <DockPanel LastChildFill="False">
-                        <TextBlock DockPanel.Dock="Left" Text="白名单管理" FontSize="14" FontWeight="SemiBold" />
+                        <TextBlock DockPanel.Dock="Left" Text="白名单管理" FontSize="14" FontWeight="Bold" />
                         <Button DockPanel.Dock="Right" Command="{Binding ToggleWhitelistPanelCommand}"
-                                Content="收起" MinWidth="56" MinHeight="24" />
+                                Content="收起" MinWidth="60" Style="{StaticResource GhostButton}" />
                     </DockPanel>
                     <TextBlock Text="移除后重新扫描，该进程即恢复参与判定；匹配按进程名（同名进程一并排除）。"
-                               Foreground="Gray" FontSize="11" Margin="0,2,0,6" TextWrapping="Wrap" />
+                               Foreground="{StaticResource Brush.TextSecondary}" FontSize="11" Margin="0,3,0,8"
+                               TextWrapping="Wrap" />
                     <!-- 空态（PRD §3.7 风格：非错误，轻文案） -->
                     <TextBlock Text="白名单为空——在列表中右键进程并选择“此进程永不推荐”即可加入。"
-                               Foreground="Gray">
+                               Foreground="{StaticResource Brush.TextSecondary}">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -176,7 +286,8 @@
                         <ItemsControl ItemsSource="{Binding WhitelistEntries}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border BorderBrush="#DDD" BorderThickness="0,0,0,1" Padding="0,4">
+                                    <Border BorderBrush="{StaticResource Brush.Line}" BorderThickness="0,0,0,1"
+                                            Padding="2,5">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="150" />
@@ -187,14 +298,18 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Text="{Binding Name}" FontWeight="SemiBold"
                                                        ToolTip="{Binding Name}" />
-                                            <TextBlock Grid.Column="1" Text="{Binding AddedAtText}" Foreground="Gray"
+                                            <TextBlock Grid.Column="1" Text="{Binding AddedAtText}"
+                                                       Foreground="{StaticResource Brush.TextSecondary}"
                                                        ToolTip="添加时间" />
-                                            <TextBlock Grid.Column="2" Text="{Binding NoteText}" Foreground="Gray"
+                                            <TextBlock Grid.Column="2" Text="{Binding NoteText}"
+                                                       Foreground="{StaticResource Brush.TextSecondary}"
                                                        ToolTip="备注" />
-                                            <TextBlock Grid.Column="3" Text="{Binding PathText}" Foreground="#555"
+                                            <TextBlock Grid.Column="3" Text="{Binding PathText}"
+                                                       Foreground="{StaticResource Brush.TextSecondary}"
                                                        Margin="8,0,8,0" TextTrimming="CharacterEllipsis"
                                                        ToolTip="{Binding PathText}" />
-                                            <Button Grid.Column="4" Content="移除" MinWidth="56" MinHeight="22"
+                                            <Button Grid.Column="4" Content="移除" MinWidth="56"
+                                                    Style="{StaticResource GhostButton}"
                                                     Command="{Binding DataContext.RemoveWhitelistEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"
                                                     ToolTip="从白名单移除；重新扫描后该进程恢复参与判定" />
@@ -207,76 +322,35 @@
                 </StackPanel>
             </Border>
 
-            <!-- 三级列表：组=Expander（🚫 默认折叠仅计数）；行=Expander 展开六要素（R02/F2） -->
-            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="8,4">
+            <!-- 三级列表：组=Expander（🚫 默认折叠仅计数）；行=卡片（T-29），行模板见资源字典（T-28 双模板） -->
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="12,2">
                 <ItemsControl ItemsSource="{Binding Groups}"
                               IsEnabled="{Binding Availability.ListInputEnabled}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}" Margin="0,2">
+                            <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}" Margin="0,4">
                                 <Expander.Header>
-                                    <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold" />
+                                    <StackPanel Orientation="Horizontal" Margin="2,0">
+                                        <Ellipse>
+                                            <Ellipse.Style>
+                                                <Style TargetType="Ellipse" BasedOn="{StaticResource LevelDot}">
+                                                    <Setter Property="Fill" Value="{StaticResource Brush.Recommend}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Level}" Value="Caution">
+                                                            <Setter Property="Fill" Value="{StaticResource Brush.Caution}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Level}" Value="Protected">
+                                                            <Setter Property="Fill" Value="{StaticResource Brush.Protected}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Ellipse.Style>
+                                        </Ellipse>
+                                        <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="Bold"
+                                                   Foreground="{StaticResource Brush.TextPrimary}" Margin="8,0,0,0" />
+                                    </StackPanel>
                                 </Expander.Header>
-                                <ItemsControl ItemsSource="{Binding Rows}" Margin="16,0,0,0">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <!-- Tag 桥接根 VM 命令（ContextMenu 不在视觉树，经 PlacementTarget.Tag 可达）；
-                                                 菜单挂整行（PRD F4“列表项右键”）；🚫 行 CanWhitelist=false 菜单项自然禁用 -->
-                                            <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
-                                                      Margin="0,1"
-                                                      Tag="{Binding DataContext.WhitelistCommand, RelativeSource={RelativeSource AncestorType=Window}}">
-                                                <Expander.ContextMenu>
-                                                    <ContextMenu>
-                                                        <MenuItem Header="此进程永不推荐"
-                                                                  Command="{Binding PlacementTarget.Tag, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                                  CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                                                  ToolTip="加入白名单后立即从推荐列表移除，此后不再推荐（同名进程一并排除）" />
-                                                    </ContextMenu>
-                                                </Expander.ContextMenu>
-                                                <Expander.Header>
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}"
-                                                                  IsEnabled="{Binding CanCheck}"
-                                                                  VerticalAlignment="Center" />
-                                                        <TextBlock Text="{Binding DisplayName}" Margin="6,0,0,0" />
-                                                        <TextBlock Text="{Binding TreeSummary}" Foreground="Gray"
-                                                                   Margin="12,0,0,0" />
-                                                    </StackPanel>
-                                                </Expander.Header>
-                                                <Expander.Style>
-                                                    <Style TargetType="Expander">
-                                                        <!-- 默认底色改经样式承载：本地属性值优先级高于触发器，会压制高亮 -->
-                                                        <Setter Property="Background" Value="#FBFBFB" />
-                                                        <Style.Triggers>
-                                                            <!-- 重启链失败项高亮（PRD F3-6：上次需管理员失败项重扫后高亮，不自动勾选） -->
-                                                            <DataTrigger Binding="{Binding IsHighlighted}" Value="True">
-                                                                <Setter Property="Background" Value="#FFF3CD" />
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Expander.Style>
-                                                <!-- 行详情：六要素（主进程/原因/来源/树合计/拉起提示 + 进程树层级） -->
-                                                <StackPanel Margin="28,4,0,8">
-                                                    <TextBlock Text="{Binding ReasonText}" TextWrapping="Wrap" />
-                                                    <TextBlock Margin="0,4,0,0">
-                                                        <Run Text="来源：" Foreground="Gray" />
-                                                        <Run Text="{Binding SourceText, Mode=OneWay}" />
-                                                    </TextBlock>
-                                                    <TextBlock Margin="0,2,0,0">
-                                                        <Run Text="{Binding TreeSummary, Mode=OneWay}" Foreground="Gray" />
-                                                    </TextBlock>
-                                                    <TextBlock Margin="0,2,0,0">
-                                                        <Run Text="拉起提示：" Foreground="Gray" />
-                                                        <Run Text="{Binding ReviveHint, Mode=OneWay}" />
-                                                    </TextBlock>
-                                                    <TextBlock Text="进程树：" Foreground="Gray" Margin="0,4,0,0" />
-                                                    <ItemsControl ItemsSource="{Binding TreeLines}"
-                                                                  FontFamily="Consolas" Margin="8,0,0,0" />
-                                                </StackPanel>
-                                            </Expander>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                                <ItemsControl ItemsSource="{Binding DisplayRows}" Margin="6,4,0,0" />
                             </Expander>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -285,7 +359,7 @@
 
             <!-- 列表尾部：白名单排除计数折叠区（F2，T-26 升级为 Expander：默认折叠仅计数可见不占焦点，
                  展开列出被排除进程；零排除整区隐藏） -->
-            <Expander Grid.Row="3" Margin="12,2" IsExpanded="False">
+            <Expander Grid.Row="3" Margin="16,2,16,8" IsExpanded="False">
                 <Expander.Style>
                     <Style TargetType="Expander">
                         <Setter Property="Visibility" Value="Visible" />
@@ -298,16 +372,17 @@
                 </Expander.Style>
                 <Expander.Header>
                     <TextBlock>
-                        <Run Text="因白名单排除 " Foreground="Gray" />
-                        <Run Text="{Binding WhitelistedExcludedCount, Mode=OneWay}" Foreground="Gray" FontWeight="SemiBold" />
-                        <Run Text=" 项" Foreground="Gray" />
-                        <Run Text="（展开查看；可经搜索框查询）" Foreground="DarkGray" FontSize="11" />
+                        <Run Text="因白名单排除 " Foreground="{StaticResource Brush.TextSecondary}" />
+                        <Run Text="{Binding WhitelistedExcludedCount, Mode=OneWay}"
+                             Foreground="{StaticResource Brush.TextSecondary}" FontWeight="SemiBold" />
+                        <Run Text=" 项" Foreground="{StaticResource Brush.TextSecondary}" />
+                        <Run Text="（展开查看；可经搜索框查询）" Foreground="{StaticResource Brush.TextSecondary}" FontSize="11" />
                     </TextBlock>
                 </Expander.Header>
                 <ItemsControl ItemsSource="{Binding WhitelistedExcludedRows}" Margin="16,2,0,4">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <TextBlock Foreground="Gray">
+                            <TextBlock Foreground="{StaticResource Brush.TextSecondary}">
                                 <Run Text="{Binding Name, Mode=OneWay}" />
                                 <Run Text=" (PID " />
                                 <Run Text="{Binding Pid, Mode=OneWay}" />
