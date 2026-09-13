@@ -41,8 +41,8 @@ static int RunChild(string[] args)
     var windowed = Has(args, "--window");
     var ignoreClose = Has(args, "--ignore-close");
 
-    // 私有提交 >50MB：托管数组存活即保持 commit charge（口径 #13 PrivateUsage）
-    if (memMb is < 1 or > 1024)
+    // 私有提交 >50MB：托管数组存活即保持 commit charge（口径 #13 PrivateUsage）；0=仅挂起合法形态（同目录存活旁证，README 场景矩阵）
+    if (memMb is < 0 or > 1024)
     {
         return 1;   // 参数越界（WinExe 无控制台，退出码 1=参数错误；用法见 README）
     }

@@ -10,7 +10,7 @@ MemRelief.TestProcs child  [--mem-mb N] [--cpu] [--established] [--window] [--ig
 ```
 
 - **parent**：启动 child → 等 child 就绪（命名事件，10s 超时）→ 本进程退出 → child 成为孤儿（父 PID 指向已退出进程）。`--out-pid` 文件首行=child pid。`--window`/`--ignore-close` 转发给 child。
-- **child**：挂起等待被外部终止。由**活父**（脚本/测试进程）直接启动即为"同目录存活进程"形态；pid 捕获示例（PowerShell）：`(Start-Process <exe> -ArgumentList 'child','--mem-mb','10' -PassThru).Id`。
+- **child**：挂起等待被外部终止。由**活父**（脚本/测试进程）直接启动即为"同目录存活进程"形态；pid 捕获示例（PowerShell）：`(Start-Process <exe> -ArgumentList 'child','--mem-mb','10' -PassThru).Id`。`--mem-mb 0` = 仅挂起不申请内存（旁证场景不引入额外提交；负数与 >1024 仍按参数错误退出）。
 - **--window**（T-09 增补）：child 创建顶层可见窗口并进入消息循环（默认 WM_CLOSE → 关闭退出）；`--ignore-close` 吞并 WM_CLOSE（模拟无响应应用，3s 超时转强杀）。R03 释放链路优雅/强杀两路径的真机载体。
 
 ## 场景矩阵（与降级信号映射；「终局判定」= rules 消费全部信号后的分级）
@@ -20,7 +20,7 @@ MemRelief.TestProcs child  [--mem-mb N] [--cpu] [--established] [--window] [--ig
 | 纯净孤儿（基线形态） | `parent` | ✅：OrphanHint=ParentDead，无窗口/无连接/非服务 |
 | CPU 忙（孤儿） | `parent --cpu`（child 内双自旋线程） | ⚠️：口径 #7 差分 >1s |
 | 活跃连接（孤儿） | `parent --established`（自连回环：一条逻辑连接，TCP 表两端各一行、同 pid 计 2） | ⚠️：口径 #6（计数 >0 即活跃） |
-| 同目录存活（非孤儿旁证） | 活父先启动 `child --mem-mb 10`（PassThru 记 pid），再跑 `parent` | 基线孤儿 ✅ 降 ⚠️：口径 #3 旁证（同目录存活者为非孤儿） |
+| 同目录存活（非孤儿旁证） | 活父先启动 `child --mem-mb 0`（PassThru 记 pid；旁证体量与判定无关，0 不引入额外提交），再跑 `parent` | 基线孤儿 ✅ 降 ⚠️：口径 #3 旁证（同目录存活者为非孤儿） |
 | 非孤儿小体量 | 活父直启 `child --mem-mb 10` | ⚠️：口径 #13 <50MB 占用过小 |
 | 孤儿小体量（豁免验证） | `parent --mem-mb 10` | ✅：孤儿豁免小体量降级（验证豁免路径本身） |
 | 常驻名命中 / UWP | 不由本工具构造（避免复制自身为常驻名的侵入，AC 收窄已登记 issue #10）——按 WBS 用真机实存项（开微信/任一 UWP 应用） | ⚠️：口径 #5 / UWP 特例 |

@@ -85,6 +85,72 @@ public class TestProcsIntegrationTests
         }
     }
 
+    // 回归（issue #42）：--mem-mb 0 = 仅挂起形态（帮助文本/README 已声明），参数校验须放行；
+    // 就绪事件为正判据——0 被拦截时 child 按参数错误退出（码 1），事件永不置位
+    [Fact]
+    public void 孤儿构造器_真机_mem_mb_0仅挂起形态放行()
+    {
+        var exe = ExePath();
+        Assert.True(File.Exists(exe), $"构造器未构建：{exe}（gate.ps1 全 sln 构建后应存在）");
+
+        var readyName = $"MemRelief.TestProcs.Ready.{Guid.NewGuid():N}";
+        using var ready = new EventWaitHandle(false, EventResetMode.ManualReset, readyName);
+        Process? child = null;
+        try
+        {
+            child = Process.Start(new ProcessStartInfo(exe)
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                ArgumentList = { "child", "--mem-mb", "0", "--ready-event", readyName },
+            });
+
+            Assert.True(ready.WaitOne(10_000), "child 10s 内未就绪（--mem-mb 0 疑被参数校验拦截）");
+            if (child!.HasExited)
+            {
+                Assert.Fail($"child 在就绪信号后提前退出（退出码 {child.ExitCode}）");
+            }
+        }
+        finally
+        {
+            if (child is not null)
+            {
+                TryKillById(child.Id);
+            }
+        }
+    }
+
+    // 越界负例：放行 0 不得放宽上下界（负数/超 1024 仍按参数错误退出）；
+    // finally 兜底：校验若被回归删除，越界值将落入 Sleep(Infinite) 永久挂起，残留进程会击穿同目录断言（同文件 sameDirAliveCount）
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("1025")]
+    public void 孤儿构造器_真机_mem_mb越界仍按参数错误退出(string memMb)
+    {
+        var exe = ExePath();
+        Assert.True(File.Exists(exe), $"构造器未构建：{exe}（gate.ps1 全 sln 构建后应存在）");
+
+        Process? child = null;
+        try
+        {
+            child = Process.Start(new ProcessStartInfo(exe)
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                ArgumentList = { "child", "--mem-mb", memMb },
+            });
+            Assert.True(child!.WaitForExit(10_000), $"--mem-mb {memMb} 10s 内未退出（应按参数错误立即退出）");
+            Assert.Equal(1, child.ExitCode);
+        }
+        finally
+        {
+            if (child is not null)
+            {
+                TryKillById(child.Id);
+            }
+        }
+    }
+
     private static void TryKillById(int pid)
     {
         try
