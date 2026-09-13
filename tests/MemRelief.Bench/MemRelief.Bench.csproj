@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- T-21 真机扫描验证台：命令行驱动四步扫描链 + 分级明细/判定依据/分段计时输出。
+         真机验收载体（issue #23），同 TestProcs 定位：独立工具，不进 T-19 单文件发布。
+         只做驱动与输出，不含判定/采集逻辑（禁碰域）；组合根自建 Core 对象图，不依赖 App。 -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MemRelief.Core\MemRelief.Core.csproj" />
+  </ItemGroup>
+
+</Project>
