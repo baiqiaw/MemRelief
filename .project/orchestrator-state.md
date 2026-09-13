@@ -6,7 +6,7 @@ project: MemRelief
 size_tier: medium                      # WBS 408h ≈ 2.5 人月（1–3 人月档）
 modules_activated: [spec_three_layer, poc, multi_agent_parallel]  # 偏离中档默认矩阵：ui_prototype 跳过（自用无甲方，PRD §1.4）、spec_three_layer 升三层、arch_review 跳过（中档默认即跳）、phased_rollout 跳过（TL 2026-09-08 裁决维持）
 current_phase: "⑥回流"
-current_step: "⑥ 回流（T-25 经验总结与 v2 移交清单）"
+current_step: "项目完结（v1 全阶段通过；v2 移交清单 #48–#52 已入台账）"
 step_status:
   "①.s1 范围基线": done                # 回填：无投标环节，范围源 = PRD v1.3；071089c 关闭「本机基线采样」待确认项（M1 前置达成）
   "①.s2 账本+知识底座+缺口视图": done   # 2026-09-07 建；缺口视图=自举场景（无生成器，原料+轴声明就位；入口已在项目 CLAUDE.md 接线，无生成器故无 SessionStart 注入）
@@ -30,7 +30,7 @@ gate_status:
   "③设计": passed                      # ③.s4 grilling 补跑 2026-09-08 收口（10 项裁决落档）
   "④实现": passed                      # 2026-09-13 收口：实现类 WP 全部 AC 签字关单（TL 签字；验收段 T-22/T-24/T-25 归 ⑤）
   "⑤验收": passed                      # 2026-09-13 阶段验收通过（M1/M2/M3 合并，TL 签字）
-  "⑥回流": in_progress                 # T-25（#26）经验总结与 v2 移交清单待产出
+  "⑥回流": passed                      # 2026-09-13 T-25 收口：复盘落档 docs/项目复盘.md，v2 移交清单 #48–#52 逐项入台账
 gate_failures: []
 gate_overrides: []
 change_log: []
@@ -40,9 +40,9 @@ artifacts:
   spec: docs/specs/system-spec.md
   wbs: docs/WBS.md
   schedule: docs/Schedule.md
-  test_report: ""                      # ⑤ 过程产物，可空
+  test_report: "docs/T-22-GWT验收矩阵.md"  # ⑤ 产物：33/33 GWT 执行记录+量化实测
   rollout_plan: ""
-  kb_update: ""                        # ⑥ 回流落点
+  kb_update: "docs/项目复盘.md"        # ⑥ 回流落点（T-25 经验总结）
   gap_view: ""                         # 自举场景：无生成器文件，next-step 按 SKILL.md 自举流程内联派生
   gap_view_axis: "WBS 交付物（7 个，承诺分组维度）"
 last_updated: 2026-09-13
