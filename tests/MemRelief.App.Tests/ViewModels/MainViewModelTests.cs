@@ -25,7 +25,8 @@ public class MainViewModelTests
         var coordinator = new ScanCoordinator(
             scanner, rules, new StaticRulePackStore(),
             new ClassificationContext(1, "u"), () => whitelist.Snapshot());
-        return new MainViewModel(new UiStateMachine(), coordinator, scanner, rules, whitelist);
+        // 概览采样链已随 #38 步骤 2 裁决删除（概览条子 VM 独立采样），主 VM 不再持 IScanner
+        return new MainViewModel(new UiStateMachine(), coordinator, rules, whitelist);
     }
 
     // —— AC-3：异步执行，调用线程不等扫描 ——
@@ -147,38 +148,8 @@ public class MainViewModelTests
         Assert.False(vm.IsScanning);
     }
 
-    [Fact]
-    public async Task 扫描成功_概览随扫描后时点刷新()
-    {
-        var scanner = new FakeScanner();
-        var vm = NewVm(scanner);
-
-        await vm.InitializeAsync(); // 启动时点
-        Assert.Equal(1, scanner.SampleOverviewCount);
-
-        await vm.StartScanAsync(); // 扫描后时点
-        Assert.Equal(2, scanner.SampleOverviewCount);
-        Assert.NotNull(vm.Overview);
-    }
-
-    [Fact]
-    public async Task 概览采样失败_显示短横线_不阻塞扫描()
-    {
-        var scanner = new FakeScanner
-        {
-            OnSampleOverview = () => throw new InvalidOperationException("系统接口不可用"),
-        };
-        var vm = NewVm(scanner);
-
-        await vm.InitializeAsync(); // 不抛
-
-        Assert.Equal("—", vm.OverviewSummary);
-        Assert.Null(vm.Overview);
-
-        await vm.StartScanAsync(); // 主流程不受概览影响
-        Assert.Equal(AppState.ResultsShown, vm.StateMachine.State);
-        Assert.Equal("—", vm.OverviewSummary);
-    }
+    // 概览采样断言已随 #38 步骤 2 裁决移除：概览条子 VM（OverviewBarTests）为采样链唯一承载，
+    // 主 VM 概览链（Overview/OverviewSummary/RefreshOverviewAsync）已删除
 
     [Fact]
     public async Task 扫描零推荐_正常空态_非错误()

@@ -17,14 +17,25 @@
             <TextBlock Text="{Binding StatusText}" Foreground="Gray" FontSize="11" />
         </Border>
 
-        <!-- 底部操作栏：开始扫描/一键释放/结果摘要；控件可用性=状态机矩阵唯一投影 -->
+        <!-- 底部操作栏：开始扫描/一键释放/取消/关报告/提权重启；控件可用性=状态机矩阵唯一投影 -->
         <Border DockPanel.Dock="Bottom" Padding="12,8" Background="#F4F4F4">
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
                     <Button Command="{Binding StartScanCommand}" Content="开始扫描" MinWidth="96" MinHeight="28" />
-                    <!-- 释放编排与确认弹窗归 T-16；本包仅按矩阵承载禁用态 -->
-                    <Button Content="一键释放" MinWidth="96" MinHeight="28" Margin="8,0,0,0"
-                            IsEnabled="{Binding Availability.ReleaseEnabled}" />
+                    <!-- 一键释放（T-16）：命令内含确认弹窗编排（N 树/X MB） -->
+                    <Button Command="{Binding ReleaseCommand}" Content="一键释放" MinWidth="96" MinHeight="28"
+                            Margin="8,0,0,0" />
+                    <!-- 取消（PRD F3-5，T-10 矩阵）：跳过未开始树，进行中树等待收尾 -->
+                    <Button Command="{Binding CancelReleaseCommand}" Content="取消" MinWidth="72" MinHeight="28"
+                            Margin="8,0,0,0" />
+                    <!-- 关闭报告（结果展示态回已展示） -->
+                    <Button Command="{Binding CloseReportCommand}" Content="关闭报告" MinWidth="72" MinHeight="28"
+                            Margin="8,0,0,0" />
+                    <!-- 提权重启（T-16，PRD F3 触发）：可见性=矩阵态级×内容条件（预标项/报告失败项） -->
+                    <Button Command="{Binding RestartElevatedCommand}" Content="以管理员身份重启" MinWidth="120"
+                            MinHeight="28" Margin="8,0,0,0"
+                            Visibility="{Binding CanRestartElevated, Converter={StaticResource BoolToVisibility}}"
+                            ToolTip="重启并携带需管理员失败项清单，重启后自动重新扫描（失败项仅高亮，由您重新勾选）" />
                     <ProgressBar IsIndeterminate="True" Width="120" Height="14" Margin="16,0,0,0"
                                  VerticalAlignment="Center"
                                  Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}" />
@@ -32,10 +43,31 @@
                 <!-- 扫描失败提示（PRD §3.7“扫描失败”行；与零推荐空态严格区分） -->
                 <TextBlock Text="{Binding ScanFailedMessage}" Foreground="Red" Margin="0,6,0,0"
                            Visibility="{Binding HasScanFailed, Converter={StaticResource BoolToVisibility}}" />
-                <!-- 白名单轻提示（损坏自愈重置/加白失败，storage.md §4.1 Recovery 通道） -->
+                <!-- 释放编排失败提示（规划失败/执行链违约兜底；与报告呈现严格区分） -->
+                <TextBlock Text="{Binding ReleaseFailedMessage}" Foreground="Red" Margin="0,6,0,0"
+                           Visibility="{Binding HasReleaseFailed, Converter={StaticResource BoolToVisibility}}" />
+                <!-- 轻提示（白名单自愈/加白失败/提权重启编排反馈，storage.md §4.1 Recovery 通道） -->
                 <TextBlock Text="{Binding WhitelistNotice}" Foreground="DarkGoldenrod" Margin="0,4,0,0"
                            Visibility="{Binding HasWhitelistNotice, Converter={StaticResource BoolToVisibility}}" />
             </StackPanel>
+        </Border>
+
+        <!-- 释放结果报告（T-16，非模态面板，PRD §3.6 结果展示态；含双释放量/逐项/跳过说明/被拉起提示/日志结果） -->
+        <Border DockPanel.Dock="Top" Padding="12,8" Background="#EEF6EE">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding Availability.CloseReportEnabled}" Value="True">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
+                <TextBlock Text="{Binding ReleaseReportText}" TextWrapping="Wrap"
+                           FontFamily="Consolas" FontSize="12" />
+            </ScrollViewer>
         </Border>
 
         <!-- 搜索框：全量判定查询（IRulesEngine.Query，R02）；可用性随矩阵 -->
@@ -115,7 +147,7 @@
                                             <!-- Tag 桥接根 VM 命令（ContextMenu 不在视觉树，经 PlacementTarget.Tag 可达）；
                                                  菜单挂整行（PRD F4“列表项右键”）；🚫 行 CanWhitelist=false 菜单项自然禁用 -->
                                             <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}"
-                                                      Margin="0,1" Background="#FBFBFB"
+                                                      Margin="0,1"
                                                       Tag="{Binding DataContext.WhitelistCommand, RelativeSource={RelativeSource AncestorType=Window}}">
                                                 <Expander.ContextMenu>
                                                     <ContextMenu>
@@ -135,6 +167,18 @@
                                                                    Margin="12,0,0,0" />
                                                     </StackPanel>
                                                 </Expander.Header>
+                                                <Expander.Style>
+                                                    <Style TargetType="Expander">
+                                                        <!-- 默认底色改经样式承载：本地属性值优先级高于触发器，会压制高亮 -->
+                                                        <Setter Property="Background" Value="#FBFBFB" />
+                                                        <Style.Triggers>
+                                                            <!-- 重启链失败项高亮（PRD F3-6：上次需管理员失败项重扫后高亮，不自动勾选） -->
+                                                            <DataTrigger Binding="{Binding IsHighlighted}" Value="True">
+                                                                <Setter Property="Background" Value="#FFF3CD" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Expander.Style>
                                                 <!-- 行详情：六要素（主进程/原因/来源/树合计/拉起提示 + 进程树层级） -->
                                                 <StackPanel Margin="28,4,0,8">
                                                     <TextBlock Text="{Binding ReasonText}" TextWrapping="Wrap" />

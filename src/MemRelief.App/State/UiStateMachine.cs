@@ -37,6 +37,11 @@ public enum AppTrigger
     /// <summary>释放结束：全部树完成或取消。</summary>
     ReleaseCompleted,
 
+    /// <summary>释放执行链违约防御出口（cross-review 收口）：Core 结构上不可达
+    /// （树内异常映射逐项+订阅者隔离），一旦发生须放行状态机防关窗死锁——回已展示保留旧列表，
+    /// 失败提示经 ReleaseFailedMessage 呈现（同 ScanFailed 失败保留模式）。</summary>
+    ReleaseFailed,
+
     /// <summary>关闭结果报告。</summary>
     ReportClosed,
 }
@@ -47,7 +52,8 @@ public readonly record struct ControlAvailability(
     bool ReleaseEnabled,
     bool ListInputEnabled,
     bool CancelReleaseEnabled,
-    bool CloseReportEnabled);
+    bool CloseReportEnabled,
+    bool RestartElevatedEnabled);
 
 /// <summary>
 /// UI 状态机宿主（ui 模块，PRD §3.6 状态流转表为本类唯一状态权威）。
@@ -125,6 +131,9 @@ public sealed class UiStateMachine
         // 全部树完成/取消 → 结果展示
         AppTrigger.ReleaseCompleted => _state == AppState.Releasing ? AppState.ReportShown : null,
 
+        // 执行链违约防御出口：回已展示保留旧列表（Releasing 必然源自已展示态，HasResults 恒真）
+        AppTrigger.ReleaseFailed => _state == AppState.Releasing ? AppState.ResultsShown : null,
+
         // 关闭报告 → 已展示
         AppTrigger.ReportClosed => _state == AppState.ReportShown ? AppState.ResultsShown : null,
 
@@ -136,25 +145,27 @@ public sealed class UiStateMachine
     /// 扫描中——开始扫描与一键释放均禁用，列表/搜索/右键只读置灰（保留上次结果并置灰）；
     /// 释放中——开始扫描、一键释放、勾选修改、右键均禁用，提供“取消”；
     /// 结果展示——报告为非模态面板，重扫可用；列表只读（离开条件仅关报告/重扫/提权重启，
-    /// 一键释放不可达，勾选无出口，故禁用——PRD 未明文，保守禁用，待 T-15 列表交互落地时复核）。
+    /// 一键释放不可达，勾选无出口，故禁用——PRD 未明文，保守禁用，待 T-15 列表交互落地时复核）；
+    /// 提权重启（T-16）——态级使能于已展示/结果展示（PRD §3.6 两态离开条件均含“以管理员重启”），
+    /// 是否出现入口由内容条件叠加（列表预标项/报告失败项，MainViewModel.CanRestartElevated）。
     /// </summary>
     private static ControlAvailability AvailabilityOf(AppState state) => state switch
     {
         AppState.NotScanned => new ControlAvailability(
             StartScanEnabled: true, ReleaseEnabled: false, ListInputEnabled: false,
-            CancelReleaseEnabled: false, CloseReportEnabled: false),
+            CancelReleaseEnabled: false, CloseReportEnabled: false, RestartElevatedEnabled: false),
         AppState.Scanning => new ControlAvailability(
             StartScanEnabled: false, ReleaseEnabled: false, ListInputEnabled: false,
-            CancelReleaseEnabled: false, CloseReportEnabled: false),
+            CancelReleaseEnabled: false, CloseReportEnabled: false, RestartElevatedEnabled: false),
         AppState.ResultsShown => new ControlAvailability(
             StartScanEnabled: true, ReleaseEnabled: true, ListInputEnabled: true,
-            CancelReleaseEnabled: false, CloseReportEnabled: false),
+            CancelReleaseEnabled: false, CloseReportEnabled: false, RestartElevatedEnabled: true),
         AppState.Releasing => new ControlAvailability(
             StartScanEnabled: false, ReleaseEnabled: false, ListInputEnabled: false,
-            CancelReleaseEnabled: true, CloseReportEnabled: false),
+            CancelReleaseEnabled: true, CloseReportEnabled: false, RestartElevatedEnabled: false),
         AppState.ReportShown => new ControlAvailability(
             StartScanEnabled: true, ReleaseEnabled: false, ListInputEnabled: false,
-            CancelReleaseEnabled: false, CloseReportEnabled: true),
+            CancelReleaseEnabled: false, CloseReportEnabled: true, RestartElevatedEnabled: true),
         _ => throw new InvalidOperationException($"未知状态 {state}（五态外不可达）"),
     };
 }

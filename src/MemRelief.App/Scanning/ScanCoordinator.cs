@@ -83,12 +83,21 @@ public sealed class ScanCoordinator
     public Task<IReadOnlyList<Classification>> ReclassifyAsync(ScanResult verifiedSnapshot) =>
         ClassifyCoreAsync(verifiedSnapshot);
 
+    /// <summary>
+    /// 名单装载（释放编排 Plan 入参消费，T-16）：与扫描链同一兜底单点——
+    /// 任一名单装载失败即整包替换 RulePack.Empty（storage 法条，禁残包入判定）。
+    /// </summary>
+    public RulePack LoadRulePackSafe()
+    {
+        var packResult = _rulePackStore.LoadRulePack();
+        return packResult.Failures.Count > 0 ? RulePack.Empty : packResult.Pack;
+    }
+
     /// <summary>判定步（名单包+白名单+上下文参数注入）。storage 法条：任一名单装载失败即整包替换为
     /// RulePack.Empty（禁残包入判定，system 法-3 经“保护性依据缺失”保守降级）。</summary>
     private async Task<IReadOnlyList<Classification>> ClassifyCoreAsync(ScanResult verified)
     {
-        var packResult = _rulePackStore.LoadRulePack();
-        var pack = packResult.Failures.Count > 0 ? RulePack.Empty : packResult.Pack;
+        var pack = LoadRulePackSafe();
         return await _rules.Classify(
             verified, _whitelistProvider(), pack, _context).ConfigureAwait(false);
     }

@@ -125,16 +125,44 @@ public class UiStateMachineTests
         Assert.Equal(AppState.ResultsShown, machine.State);
     }
 
+    // —— 释放失败防御出口（cross-review 收口：防执行链违约滞留释放中致关窗死锁） ——
+    [Fact]
+    public void 释放失败_回已展示_保留结果标记()
+    {
+        var machine = NewMachine();
+        machine.TryTransition(AppTrigger.StartScan);
+        machine.TryTransition(AppTrigger.ScanCompleted);
+        machine.TryTransition(AppTrigger.ReleaseConfirmed); // 释放中（HasResults 恒真）
+
+        machine.TryTransition(AppTrigger.ReleaseFailed);
+
+        Assert.Equal(AppState.ResultsShown, machine.State);
+    }
+
+    [Theory]
+    [InlineData(AppState.NotScanned)]
+    [InlineData(AppState.Scanning)]
+    [InlineData(AppState.ResultsShown)]
+    [InlineData(AppState.ReportShown)]
+    public void 释放失败_非释放中态_拒绝(AppState state)
+    {
+        var machine = NewMachine().EnteringStateForTest(state);
+
+        machine.TryTransition(AppTrigger.ReleaseFailed);
+
+        Assert.Equal(state, machine.State);
+    }
+
     // —— 控件可用性矩阵（PRD §3.6 前端展示列；进行中态统一禁用）——
     [Theory]
-    [InlineData(AppState.NotScanned, true, false, false, false, false)]
-    [InlineData(AppState.Scanning, false, false, false, false, false)]
-    [InlineData(AppState.ResultsShown, true, true, true, false, false)]
-    [InlineData(AppState.Releasing, false, false, false, true, false)]
-    [InlineData(AppState.ReportShown, true, false, false, false, true)]
+    [InlineData(AppState.NotScanned, true, false, false, false, false, false)]
+    [InlineData(AppState.Scanning, false, false, false, false, false, false)]
+    [InlineData(AppState.ResultsShown, true, true, true, false, false, true)]
+    [InlineData(AppState.Releasing, false, false, false, true, false, false)]
+    [InlineData(AppState.ReportShown, true, false, false, false, true, true)]
     public void 可用性矩阵_按状态派生(
         AppState state, bool startScan, bool release, bool listInput,
-        bool cancelRelease, bool closeReport)
+        bool cancelRelease, bool closeReport, bool restartElevated)
     {
         var machine = NewMachine().EnteringStateForTest(state);
 
@@ -145,6 +173,7 @@ public class UiStateMachineTests
         Assert.Equal(listInput, a.ListInputEnabled);
         Assert.Equal(cancelRelease, a.CancelReleaseEnabled);
         Assert.Equal(closeReport, a.CloseReportEnabled);
+        Assert.Equal(restartElevated, a.RestartElevatedEnabled); // 态级使能；内容条件（预标/失败项）归 VM
     }
 
     [Fact]

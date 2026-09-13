@@ -31,7 +31,7 @@ public class StaResponsiveTests
         var coordinator = new ScanCoordinator(
             scanner, rules, new StaticRulePackStore(),
             new ClassificationContext(1, "u"), () => whitelist.Snapshot());
-        var vm = new MainViewModel(new UiStateMachine(), coordinator, scanner, rules, whitelist);
+        var vm = new MainViewModel(new UiStateMachine(), coordinator, rules, whitelist);
 
         var staReady = new TaskCompletionSource();
         var probeRan = new TaskCompletionSource();

@@ -27,7 +27,7 @@ public class ReleaseOrchestrationTests
             scanner, rules, new StaticRulePackStore(),
             new ClassificationContext(1, "u"), () => whitelist.Snapshot());
         return (new MainViewModel(
-            new UiStateMachine(), coordinator, scanner, rules, whitelist,
+            new UiStateMachine(), coordinator, rules, whitelist,
             withReleaser ? releaser : null), releaser);
     }
 

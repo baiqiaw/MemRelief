@@ -61,6 +61,7 @@ public sealed class ClassificationRow : INotifyPropertyChanged
 {
     private bool _isChecked;
     private bool _isExpanded;
+    private bool _isHighlighted;
 
     /// <summary>整组投影入口（VM 侧共享索引一次构建）；独立构造走单行索引（测试铺态用）。</summary>
     public ClassificationRow(Classification classification, ScanResult snapshot)
@@ -75,7 +76,7 @@ public sealed class ClassificationRow : INotifyPropertyChanged
         TreePrivateBytes = classification.TreePrivateBytes;
 
         index.TryGet(classification.Pid, out var processSnapshot);
-        ProcessName = processSnapshot?.Name ?? $"PID {classification.Pid}";
+        ProcessName = DisplayText.PidFallbackName(processSnapshot?.Name, classification.Pid);
         // 孤儿项（含 PID 复用）主进程名后缀（R02 空值口径）
         var orphan = processSnapshot is not null
             && processSnapshot.Signals.OrphanHint is OrphanHint.ParentDead or OrphanHint.PidReused;
@@ -113,6 +114,10 @@ public sealed class ClassificationRow : INotifyPropertyChanged
 
     /// <summary>行详情展开态（默认折叠；与组折叠独立）。</summary>
     public bool IsExpanded { get => _isExpanded; set => SetField(ref _isExpanded, value); }
+
+    /// <summary>重启链失败项高亮（PRD F3-6：上次“需管理员”失败项重扫后高亮，由用户手动重勾——
+    /// 高亮不触碰勾选默认态，不自动恢复勾选；MainViewModel.RebuildGroups 单点赋值）。</summary>
+    public bool IsHighlighted { get => _isHighlighted; set => SetField(ref _isHighlighted, value); }
 
     /// <summary>原因说明（判定依据中文文案，逐条换行）。</summary>
     public string ReasonText { get; }

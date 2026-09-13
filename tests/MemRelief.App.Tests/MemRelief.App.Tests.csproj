@@ -9,8 +9,9 @@
     <!-- 覆盖率常驻（仅统计 MemRelief.App 手写类型）；阈值强制由 scripts/gate.ps1 以 /p: 注入 -->
     <CollectCoverage>true</CollectCoverage>
     <Include>[MemRelief.App]*</Include>
-    <!-- XAML 生成代码（g.cs）与仅含绑定接线的 code-behind 不入口径（无判定/映射逻辑可测） -->
-    <Exclude>[MemRelief.App]MemRelief.App.App,[MemRelief.App]MemRelief.App.MainWindow,[MemRelief.App]MemRelief.App.OverviewBar</Exclude>
+    <!-- XAML 生成代码（g.cs）、仅含绑定接线的 code-behind、Win32 激活薄通道（ExistingWindowActivator，
+         P/Invoke 无判定逻辑，类上 ExcludeFromCodeCoverage 已注记）不入口径（无判定/映射逻辑可测） -->
+    <Exclude>[MemRelief.App]MemRelief.App.App,[MemRelief.App]MemRelief.App.MainWindow,[MemRelief.App]MemRelief.App.OverviewBar,[MemRelief.App]MemRelief.App.Hosting.ExistingWindowActivator</Exclude>
   </PropertyGroup>
 
   <ItemGroup>

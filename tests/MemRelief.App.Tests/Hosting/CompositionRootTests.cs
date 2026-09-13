@@ -24,18 +24,8 @@ public class CompositionRootTests
         Assert.True(vm.StartScanCommand.CanExecute(null));
     }
 
-    [Fact]
-    public async Task 组合根_真实Core装配_真机概览采样可用()
-    {
-        // 真实 Scanner（T-01/T-02/T-05 装配链）+ 真实 RulePackStore（T-13 嵌入资源）
-        // 概览走 NtQuery/PDH 真机通道，毫秒级；扫描链真机冒烟由 Core.Tests 集成测试承载
-        var vm = CompositionRoot.CreateViewModel();
-
-        await vm.InitializeAsync();
-
-        Assert.NotEqual("—", vm.OverviewSummary); // 真机健康时应有真实三数值
-        Assert.Null(vm.ScanFailedMessage);
-    }
+    // 概览采样接线断言已随 #38 步骤 2 裁决移除：采样链归概览条子 VM（OverviewBarTests），
+    // 真机 Scanner 装配冒烟由 Core.Tests 集成测试承载
 
     [Fact]
     public void 组合根_名单包_来自嵌入资源真实装载()
