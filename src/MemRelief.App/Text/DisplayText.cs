@@ -56,11 +56,14 @@ internal static class DisplayText
             : string.Empty;
     }
 
-    /// <summary>来源文案：“类型：条目名”分号拼接；无来源显示“无（手动启动）”。</summary>
+    /// <summary>来源文案：“类型：条目名”分号拼接；无来源显示“无（手动启动）”。
+    /// 按 Type+EntryName 去重（HKLM/HKCU 双视图同条目采集侧各产一条，重复文案对用户无信息量；issue #32 第 3 条，数据忠实原则不动）。</summary>
     public static string Source(IReadOnlyList<SourceEntry> entries) =>
         entries.Count == 0
             ? NoSource
-            : string.Join("；", entries.Select(e => $"{SourceTypeName(e.Type)}：{e.EntryName}"));
+            : string.Join("；", entries
+                .DistinctBy(e => (e.Type, e.EntryName))
+                .Select(e => $"{SourceTypeName(e.Type)}：{e.EntryName}"));
 
     /// <summary>树合计内存（口径 #13），MB 一位小数。</summary>
     public static string TreeMb(long bytes) => $"{bytes / 1024.0 / 1024:F1} MB";
