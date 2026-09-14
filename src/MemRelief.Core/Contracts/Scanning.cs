@@ -92,14 +92,15 @@ public record ScanResult(
     public IReadOnlyList<SignalFailure> Failures { get; init; } = Failures ?? Array.Empty<SignalFailure>();
 }
 
-/// <summary>内存概览三数值（data-contracts §1.1；T-05 采样实现，ui/releaser 消费）。</summary>
+/// <summary>内存概览数值（data-contracts §1.1；T-05 采样实现，ui/releaser 消费；Detail=通道降级/兜底原因，生产端 Sampler 保证 Degraded 恒非空，非 ui 展示面）。</summary>
 public record MemoryOverview(
     long PhysicalTotalBytes,
     long InUseBytes,
     long CommitBytes,
     long CommitLimitBytes,
     long? StandbyBytes,
-    MemoryOverviewSource Source);
+    MemoryOverviewSource Source,
+    string? Detail = null);
 
 public enum MemoryOverviewSource
 {

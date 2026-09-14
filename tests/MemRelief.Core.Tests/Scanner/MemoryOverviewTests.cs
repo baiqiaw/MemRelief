@@ -53,6 +53,7 @@ public class MemoryOverviewTests
 
         Assert.Equal(MemoryOverviewSource.Degraded, overview.Source);
         Assert.Null(overview.StandbyBytes);
+        Assert.False(string.IsNullOrEmpty(overview.Detail), "全零降级子分支同样须携带 Detail（issue #31）");
     }
 
     // —— CASE：PDH 通道（double 字节值 + standby 三计数器可选）——
@@ -101,6 +102,84 @@ public class MemoryOverviewTests
         Assert.Equal(20L * 1024 * 1024 * 1024, overview.CommitLimitBytes);
     }
 
+    // —— CASE：Detail 降级原因（issue #31：产物自描述，Degraded 混同三种数据质量不可观测）——
+
+    [Fact]
+    public void NtQuery全量_Detail为null_成功路径无噪声()
+    {
+        var overview = MemoryOverviewSampler.FromNtQuery(
+            16L * 1024 * 1024 * 1024, 1_000_000, 2_000_000, 4_000_000, Page4K,
+            standbyByPriority: new ulong[] { 10, 0, 0, 0, 0, 0, 0, 0 });
+
+        Assert.Null(overview.Detail);
+    }
+
+    [Fact]
+    public void NtQuery缺standby_Detail注列表不可得或全零()
+    {
+        var overview = MemoryOverviewSampler.FromNtQuery(
+            16L * 1024 * 1024 * 1024, 1_000_000, 2_000_000, 4_000_000, Page4K,
+            standbyByPriority: null);
+
+        Assert.Equal(MemoryOverviewSource.Degraded, overview.Source);
+        Assert.NotNull(overview.Detail);
+        Assert.Contains("NtQuery", overview.Detail);
+        Assert.Contains("列表", overview.Detail);
+        Assert.Contains("standby", overview.Detail);
+    }
+
+    [Fact]
+    public void Pdh兜底成功_Detail注NtQuery主通道不可用()
+    {
+        var overview = MemoryOverviewSampler.FromPdh(
+            8e9, 16e9, 4e9, standbyBytes: 3e9,
+            16L * 1024 * 1024 * 1024);
+
+        Assert.Equal(MemoryOverviewSource.Pdh, overview.Source);
+        Assert.NotNull(overview.Detail);
+        Assert.Contains("NtQuery", overview.Detail);
+        Assert.Contains("PDH", overview.Detail);
+    }
+
+    [Fact]
+    public void Pdh缺standby_Detail注主通道与standby双缺失()
+    {
+        var overview = MemoryOverviewSampler.FromPdh(
+            8e9, 16e9, 4e9, standbyBytes: null,
+            16L * 1024 * 1024 * 1024);
+
+        Assert.Equal(MemoryOverviewSource.Degraded, overview.Source);
+        Assert.NotNull(overview.Detail);
+        Assert.Contains("NtQuery", overview.Detail);
+        Assert.Contains("PDH", overview.Detail);
+        Assert.Contains("standby", overview.Detail);
+    }
+
+    [Fact]
+    public void PdhStandby为零值_同不可得_降级()
+    {
+        // is > 0 判据的边界：0 与 null 同走不可得分支（>0 才算有效 standby）
+        var overview = MemoryOverviewSampler.FromPdh(
+            8e9, 16e9, 4e9, standbyBytes: 0d,
+            16L * 1024 * 1024 * 1024);
+
+        Assert.Equal(MemoryOverviewSource.Degraded, overview.Source);
+        Assert.Null(overview.StandbyBytes);
+        Assert.NotNull(overview.Detail);
+    }
+
+    [Fact]
+    public void 全局兜底_Detail注双通道不可用与近似口径()
+    {
+        var overview = MemoryOverviewSampler.FromGlobalMemory(
+            16L * 1024 * 1024 * 1024, 4L * 1024 * 1024 * 1024,
+            20L * 1024 * 1024 * 1024, 12L * 1024 * 1024 * 1024);
+
+        Assert.NotNull(overview.Detail);
+        Assert.Contains("PDH", overview.Detail);
+        Assert.Contains("GlobalMemoryStatusEx", overview.Detail);
+    }
+
     // —— CASE：对抗性输入（计数器毛刺不产生负值外泄）——
 
     [Fact]
@@ -147,6 +226,8 @@ public class MemoryOverviewTests
         {
             Assert.Equal(MemoryOverviewSource.Degraded, sample.Source);
             Assert.Null(sample.StandbyBytes);
+            Assert.False(string.IsNullOrEmpty(sample.Detail), "降级样本须携带 Detail 降级原因（issue #31）");
         }
+        Assert.Null(ntqOk.Detail);
     }
 }

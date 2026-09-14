@@ -42,13 +42,15 @@ public sealed class MemoryOverviewSampler
             var pageSizeSafe = Math.Max(pageSize, 1UL);
             standby = (long)(Math.Min(sumPages, (ulong)(long.MaxValue / pageSizeSafe)) * pageSizeSafe);
         }
+        var standbyMissing = standby is null;
         return new MemoryOverview(
             physicalTotalBytes,
             ClampInUse(physicalTotalBytes, checked((long)availablePages * pageSize)),
             ClampToLong((double)committedPages * pageSize),
             ClampToLong((double)commitLimitPages * pageSize),
             standby,
-            standby is null ? MemoryOverviewSource.Degraded : MemoryOverviewSource.NtQuery);
+            standbyMissing ? MemoryOverviewSource.Degraded : MemoryOverviewSource.NtQuery,
+            standbyMissing ? "NtQuery standby 列表不可得或全零" : null);
     }
 
     /// <summary>PDH 通道换算：计数器字节值直读（InUse 口径 = PDH Available Bytes）；standby 缺失或合计 ≤0 → 降级。</summary>
@@ -56,13 +58,17 @@ public sealed class MemoryOverviewSampler
         double committedBytes, double commitLimitBytes, double availableBytes, double? standbyBytes,
         long physicalTotalBytes)
     {
+        var hasStandby = standbyBytes is > 0;
         return new MemoryOverview(
             physicalTotalBytes,
             ClampInUse(physicalTotalBytes, ClampToLong(availableBytes)),
             ClampToLong(committedBytes),
             ClampToLong(commitLimitBytes),
-            standbyBytes is > 0 ? ClampToLong(standbyBytes.Value) : null,
-            standbyBytes is > 0 ? MemoryOverviewSource.Pdh : MemoryOverviewSource.Degraded);
+            hasStandby ? ClampToLong(standbyBytes!.Value) : null,
+            hasStandby ? MemoryOverviewSource.Pdh : MemoryOverviewSource.Degraded,
+            hasStandby
+                ? "NtQuery 主通道不可用，PDH 计数器兜底"
+                : "NtQuery 主通道不可用，PDH 兜底且 standby 不可得");
     }
 
     /// <summary>终底换算：GlobalMemoryStatusEx（commit 用页面文件口径近似，Source=Degraded，standby 恒 null）。</summary>
@@ -75,7 +81,8 @@ public sealed class MemoryOverviewSampler
             Math.Max(0, totalPageFileBytes - Math.Min(totalPageFileBytes, Math.Max(0, availPageFileBytes))),
             totalPageFileBytes,
             null,
-            MemoryOverviewSource.Degraded);
+            MemoryOverviewSource.Degraded,
+            "NtQuery 与 PDH 均不可用，GlobalMemoryStatusEx 近似（commit 为页面文件口径）");
     }
 
     /// <summary>可用 > 物理总量（计数器毛刺）→ 0，禁负值外泄给 ui/释放量计算。</summary>

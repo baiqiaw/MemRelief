@@ -42,7 +42,7 @@
 - **`SignalFailure`**：`SignalId`（口径表编号；基础字段失败另有 100–103 编号段与 0 保留值，见 §2 T-01 裁决③）、`Pid`（int?，null=采集器级全局失败，非单进程）、`Kind`（enum{AccessDenied=打开受拒/PPL，Unreadable=部分元数据不可读，CollectorFailed=采集器/通道失败}）、`Detail`（人读原因，不作判定输入）。**保守兜底按 Kind+Pid 精确承载**（system 法-3）：AccessDenied→🚫受保护；Unreadable/CollectorFailed→相关进程不进✅。全局失败（Pid=null）v1 语义=全量进程不进✅（全有全无；代价已接受：采集器级失败意味着扫描数据整体不可信）。
 - **`ClassificationContext`**：`SelfPid`（本工具自身 PID，🚫"本工具自身"判定依据）、`CurrentUserName`（string?，当前用户，跨用户预标依据，T-07 消费；null=获取失败→跨用户预标不可判，兜底方向归 T-07 裁决）。编排方构造后注入 rules，保持判定纯函数（不含环境读取）。
 - **`ScanResult`**：`TakenAtUtc`、`ProcessCount`（=Snapshots.Count 的冗余快照，语义=尝试枚举总数；v1 与 Snapshots 一致）、`DurationMs`、`Snapshots`、`Failures`。不可变（构造后调用方不得变更底层集合，实现以防御性拷贝保证）。
-- **`MemoryOverview`**：`PhysicalTotalBytes`、`InUseBytes`、`CommitBytes`、`CommitLimitBytes`、`StandbyBytes`（可空=降级）、`Source`（enum{NtQuery, Pdh, Degraded}）。
+- **`MemoryOverview`**：`PhysicalTotalBytes`、`InUseBytes`、`CommitBytes`、`CommitLimitBytes`、`StandbyBytes`（可空=降级）、`Source`（enum{NtQuery, Pdh, Degraded}）、`Detail`（可空人读诊断文本[issue #31，2026-09-14]：通道降级/兜底原因——生产端由 Sampler 保证 `Degraded` 恒非空（record 构造不强制，消费方不得依赖非空）；`Source=Pdh` 注 NtQuery 主通道不可用；NtQuery 全成功=null；非 ui 展示面，消费方=诊断（内存产物自描述）——随 ReleaseReport.Before/After 内存流转，**JSONL 落盘不承载 Detail/Source**（ReleaseLogStore.ToF6 仅取 InUse/Commit，系有意排除：释放日志属 v2 声明的敏感数据面，扩 F6 须按产品变更另立单）；值恒为常量串，禁拼异常消息/路径/环境信息；standby「不可得」与「全零」按 v1 保守口径合并不区分）。
 
 ### 1.2 判定域（rules 提供）
 
