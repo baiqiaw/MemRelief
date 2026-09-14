@@ -42,14 +42,14 @@ static int RunChild(string[] args)
     var ignoreClose = Has(args, "--ignore-close");
 
     // 私有提交 >50MB：托管数组存活即保持 commit charge（口径 #13 PrivateUsage）；0=仅挂起合法形态（同目录存活旁证，README 场景矩阵）
-    if (memMb is < 0 or > 1024)
+    if (IsMemMbInvalid(memMb))
     {
-        return 1;   // 参数越界（WinExe 无控制台，退出码 1=参数错误；用法见 README）
+        return 1;   // 参数越界或缺值/非数值（WinExe 无控制台，退出码 1=参数错误；用法见 README）
     }
 
-    if (memMb > 0)
+    if (memMb.Value > 0)
     {
-        Hold.Memory = new byte[memMb * 1024L * 1024L];
+        Hold.Memory = new byte[memMb.Value * 1024L * 1024L];
         Hold.Memory[0] = 0xAA;
         Hold.Memory[^1] = 0xBB;
     }
@@ -104,10 +104,16 @@ static int RunParent(string[] args)
     var ignoreClose = Has(args, "--ignore-close");
     var outPidPath = GetStr(args, "--out-pid");
 
+    // 越界或缺值/非数值：参数错误直接退出，不启动 child（与 child 侧校验同口径；此前经 child 拒绝落 2，issue #44）
+    if (IsMemMbInvalid(memMb))
+    {
+        return 1;
+    }
+
     var readyName = $"MemRelief.TestProcs.Ready.{Guid.NewGuid():N}";
     using var ready = new EventWaitHandle(false, EventResetMode.ManualReset, readyName);
 
-    var child = StartChild(exe, memMb, spinCpu, established, windowed, ignoreClose, readyName);
+    var child = StartChild(exe, memMb.Value, spinCpu, established, windowed, ignoreClose, readyName);
 
     // 泄漏防御：就绪等待/写出 pid 文件失败时必须清掉已启动的挂起 child，否则成为无 pid 记录的隐形孤儿
     try
@@ -177,10 +183,19 @@ static void TryKill(Process process)
 
 static bool Has(string[] args, string name) => args.Contains(name, StringComparer.OrdinalIgnoreCase);
 
-static int GetInt(string[] args, string name, int fallback)
+/// <summary>--mem-mb 合法域 [0,1024]；null=提供但缺值/非数值/溢出（issue #44）。唯一校验落点，child/parent 共用。</summary>
+static bool IsMemMbInvalid(int? memMb) => memMb is null or < 0 or > 1024;
+
+static int? GetInt(string[] args, string name, int fallback)
 {
     var index = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase));
-    return index >= 0 && index + 1 < args.Length && int.TryParse(args[index + 1], out var value) ? value : fallback;
+    if (index < 0)
+    {
+        return fallback;    // 未提供参数 → 默认值（合法形态）
+    }
+    return index + 1 < args.Length && int.TryParse(args[index + 1], out var value)
+        ? value
+        : null;             // 提供了但缺值/非数值/溢出 → null（调用方按参数错误退出，issue #44）
 }
 
 static string? GetStr(string[] args, string name)

@@ -120,12 +120,13 @@ public class TestProcsIntegrationTests
         }
     }
 
-    // 越界负例：放行 0 不得放宽上下界（负数/超 1024 仍按参数错误退出）；
+    // 非法值负例（越界/非数值，issue #44 扩面）：放行 0 不得放宽上下界或静默回退默认值；
     // finally 兜底：校验若被回归删除，越界值将落入 Sleep(Infinite) 永久挂起，残留进程会击穿同目录断言（同文件 sameDirAliveCount）
     [Theory]
     [InlineData("-1")]
     [InlineData("1025")]
-    public void 孤儿构造器_真机_mem_mb越界仍按参数错误退出(string memMb)
+    [InlineData("abc")]
+    public void 孤儿构造器_真机_mem_mb非法值仍按参数错误退出(string memMb)
     {
         var exe = ExePath();
         Assert.True(File.Exists(exe), $"构造器未构建：{exe}（gate.ps1 全 sln 构建后应存在）");
@@ -149,6 +150,27 @@ public class TestProcsIntegrationTests
                 TryKillById(child.Id);
             }
         }
+    }
+
+    // parent 侧同口径负例（issue #44 原始症状之一：--mem-mb 非法值曾经 child 拒绝落退出码 2）。
+    // 校验前置于 child 启动：参数错误立即退出码 1，不产生 child；若校验被回归删除，
+    // parent 将在 ~10s 就绪超时后以退出码 2 结束（自带 child 清理），断言拦截退出码漂移。
+    [Theory]
+    [InlineData("abc")]
+    [InlineData("-1")]
+    public void 孤儿构造器_真机_parent_mem_mb非法值直接参数错误退出(string memMb)
+    {
+        var exe = ExePath();
+        Assert.True(File.Exists(exe), $"构造器未构建：{exe}（gate.ps1 全 sln 构建后应存在）");
+
+        using var parent = Process.Start(new ProcessStartInfo(exe)
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            ArgumentList = { "parent", "--mem-mb", memMb },
+        });
+        Assert.True(parent!.WaitForExit(15_000), $"parent --mem-mb {memMb} 15s 内未退出（应按参数错误立即退出）");
+        Assert.Equal(1, parent.ExitCode);
     }
 
     private static void TryKillById(int pid)

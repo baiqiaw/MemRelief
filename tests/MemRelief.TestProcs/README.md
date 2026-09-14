@@ -10,7 +10,7 @@ MemRelief.TestProcs child  [--mem-mb N] [--cpu] [--established] [--window] [--ig
 ```
 
 - **parent**：启动 child → 等 child 就绪（命名事件，10s 超时）→ 本进程退出 → child 成为孤儿（父 PID 指向已退出进程）。`--out-pid` 文件首行=child pid。`--window`/`--ignore-close` 转发给 child。
-- **child**：挂起等待被外部终止。由**活父**（脚本/测试进程）直接启动即为"同目录存活进程"形态；pid 捕获示例（PowerShell）：`(Start-Process <exe> -ArgumentList 'child','--mem-mb','10' -PassThru).Id`。`--mem-mb 0` = 仅挂起不申请内存（旁证场景不引入额外提交；负数与 >1024 仍按参数错误退出）。
+- **child**：挂起等待被外部终止。由**活父**（脚本/测试进程）直接启动即为"同目录存活进程"形态；pid 捕获示例（PowerShell）：`(Start-Process <exe> -ArgumentList 'child','--mem-mb','10' -PassThru).Id`。`--mem-mb 0` = 仅挂起不申请内存（旁证场景不引入额外提交）。合法域 0–1024，域外（负数、>1024、缺值与非数值）均按参数错误退出。
 - **--window**（T-09 增补）：child 创建顶层可见窗口并进入消息循环（默认 WM_CLOSE → 关闭退出）；`--ignore-close` 吞并 WM_CLOSE（模拟无响应应用，3s 超时转强杀）。R03 释放链路优雅/强杀两路径的真机载体。
 
 ## 场景矩阵（与降级信号映射；「终局判定」= rules 消费全部信号后的分级）
