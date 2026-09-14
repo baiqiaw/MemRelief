@@ -2,7 +2,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using Windows.Win32;
 using Windows.Win32.Foundation;
-using Windows.Win32.Security;
 using Windows.Win32.System.Diagnostics.ToolHelp;
 using Windows.Win32.System.ProcessStatus;
 using Windows.Win32.System.Threading;
@@ -28,7 +27,6 @@ namespace MemRelief.Core.Scanner;
 public sealed class NativeProcessEnumerator
 {
     private const int ErrorNoMoreFiles = 18;
-    private const int ErrorInsufficientBuffer = 122;
 
     /// <summary>枚举全量进程行；TakenAtUtc=Toolhelp 快照句柄创建时点（契约"一次扫描的一致视图"）。</summary>
     /// <exception cref="InvalidOperationException">快照创建重试仍失败，或迭代异常终止（如 ERROR_PARTIAL_COPY）——扫描失败，不产出残缺快照。</exception>
@@ -292,74 +290,10 @@ public sealed class NativeProcessEnumerator
         }
     }
 
-    private static unsafe ProcessField<string?> TryGetOwnerUser(HANDLE handle)
+    private static ProcessField<string?> TryGetOwnerUser(HANDLE handle)
     {
-        try
-        {
-            HANDLE token = default;
-            if (!PInvoke.OpenProcessToken(handle, TOKEN_ACCESS_MASK.TOKEN_QUERY, &token))
-            {
-                return ProcessField<string?>.Fail($"令牌不可读（Win32 错误 {Marshal.GetLastWin32Error()}）");
-            }
-            try
-            {
-                return ReadTokenUserName(token);
-            }
-            finally
-            {
-                PInvoke.CloseHandle(token);
-            }
-        }
-        catch (Exception ex)
-        {
-            return ProcessField<string?>.Fail($"意外异常 {ex.GetType().Name}: {ex.Message}");
-        }
-    }
-
-    private static unsafe ProcessField<string?> ReadTokenUserName(HANDLE token)
-    {
-        // 两段式：首调探测长度——预期返回 false（ERROR_INSUFFICIENT_BUFFER=122）并回填 returnLength，非失败
-        uint returnLength = 0;
-        _ = PInvoke.GetTokenInformation(token, TOKEN_INFORMATION_CLASS.TokenUser, null, 0, &returnLength);
-        if (returnLength == 0)
-        {
-            return ProcessField<string?>.Fail($"令牌信息不可读（Win32 错误 {Marshal.GetLastWin32Error()}）");
-        }
-        if (returnLength > 4096)
-        {
-            return ProcessField<string?>.Fail("TokenUser 缓冲超长");
-        }
-
-        Span<byte> tokenBuffer = stackalloc byte[(int)returnLength];
-        fixed (byte* bufferPtr = tokenBuffer)
-        {
-            if (!PInvoke.GetTokenInformation(token, TOKEN_INFORMATION_CLASS.TokenUser, bufferPtr, returnLength, &returnLength))
-            {
-                return ProcessField<string?>.Fail($"令牌信息不可读（Win32 错误 {Marshal.GetLastWin32Error()}）");
-            }
-
-            // TOKEN_USER.User 为 SID_AND_ATTRIBUTES（PSID 指针+属性），SID 体在缓冲区内部
-            var tokenUser = (TOKEN_USER*)bufferPtr;
-            if (tokenUser->User.Sid.Value == null)
-            {
-                return ProcessField<string?>.Fail("令牌无用户 SID");
-            }
-            Span<char> name = stackalloc char[256];
-            Span<char> domain = stackalloc char[256];
-            uint nameLen = (uint)name.Length;
-            uint domainLen = (uint)domain.Length;
-            fixed (char* namePtr = name)
-            fixed (char* domainPtr = domain)
-            {
-                // peUse 不可传空（部分系统路径无条件写入，空指针=进程内 AV）
-                SID_NAME_USE sidUse = default;
-                if (!PInvoke.LookupAccountSid(default, tokenUser->User.Sid, new PWSTR(namePtr), &nameLen, new PWSTR(domainPtr), &domainLen, &sidUse))
-                {
-                    return ProcessField<string?>.Fail($"账户名解析失败（Win32 错误 {Marshal.GetLastWin32Error()}）");
-                }
-                // 裸所有者名（lpName 分量，不含域前缀）——裁决①
-                return ProcessField<string?>.Ok(new string(namePtr, 0, (int)nameLen));
-            }
-        }
+        // 读取核心归 Win32.TokenUserNameReader 共享层（issue #39 收口，T-01 裁决①格式口径），本侧承载 ProcessField 失败原因契约
+        var (name, failReason) = Win32.TokenUserNameReader.TryReadFromProcess(handle);
+        return name is not null ? ProcessField<string?>.Ok(name) : ProcessField<string?>.Fail(failReason!);
     }
 }
