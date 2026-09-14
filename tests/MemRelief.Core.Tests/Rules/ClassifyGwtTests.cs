@@ -26,6 +26,21 @@ public class ClassifyGwtTests
         Assert.Contains(byId[1].Bases, b => b.SignalId == 1 && b.Detail.Contains("孤儿进程（父进程已退出）"));
     }
 
+    // 全局失败降级链回归（issue #35-1 验签系统性失效探针的 rules 侧影响面锁定）：
+    // Pid=null SignalFailure → hasGlobalFailure → 全量进程不进✅且携带保守依据（既有语义：采集器级失败=整体不可信）
+    [Fact]
+    public void 全局失败_验签探针触发形态_全量进程不进推荐级且携带保守依据()
+    {
+        var scan = Snap.ScanWith([Snap.Clean(1)],
+            new SignalFailure(9, null, FailureKind.CollectorFailed, "验签通道系统性失效"));
+
+        var byId = Classify(scan);
+
+        var c = byId[1];
+        Assert.NotEqual(Level.Recommend, c.Level);
+        Assert.Contains(c.Bases, b => b.SignalId == 0 && b.Detail.Contains("信号采集失败"));
+    }
+
     // GWT-2 PID 复用（复用者创建时间晚于子）→ ✅（引擎单元级：直接构造 OrphanHint.PidReused）
     [Fact]
     public void Gwt2_PID复用孤儿_进推荐级()

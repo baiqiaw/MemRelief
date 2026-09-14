@@ -173,8 +173,64 @@ public class CollectSignaturesTests
         Assert.Equal(TakenAt, result.TakenAtUtc);
         Assert.Equal(1234, result.DurationMs);
         Assert.Equal(2, result.ProcessCount);
-        Assert.Single(result.Failures); // 既有失败记录原样（验签不产生 SignalFailure：状态自表达）
+        Assert.Single(result.Failures); // 既有失败记录原样（本例替身结论 Unsigned=通道健康，探针不触发；系统性失效场景见下方探针用例）
         Assert.Same(scan.Snapshots[1], result.Snapshots[1]); // 非候选行同实例
+    }
+
+    // —— 验签通道系统性失效探针（issue #35-1，2026-09-14 TL 裁决补探针：全候选 Unverifiable → 全局 SignalFailure）——
+
+    [Fact]
+    public async Task 全候选Unverifiable_系统性失效_追加全局SignalFailure()
+    {
+        var (scanner, _) = ScannerWithFake(new SignatureVerdict(SignatureStatus.Unverifiable, null), out _);
+        var scan = ScanOf(Snap(101, @"C:\app\a.exe"), Snap(202, @"C:\app\b.exe"));
+
+        var result = await scanner.CollectSignatures(scan, new HashSet<int> { 101, 202 });
+
+        var global = Assert.Single(result.Failures, f => !f.Pid.HasValue);
+        Assert.Equal(9, global.SignalId);
+        Assert.Equal(FailureKind.CollectorFailed, global.Kind);
+        Assert.Contains("系统性失效", global.Detail);
+    }
+
+    [Fact]
+    public async Task 全候选路径不可得Unverifiable_未经通道判定_不触发探针()
+    {
+        // 路径不可得候选走 MergeSignatureSignals 短路分支直接 Unverifiable，验签通道从未被调用——
+        // 不能作为"通道失效"证据（否则误指引排障方向查 cryptsvc，真实根因在路径读取）
+        var (scanner, _) = ScannerWithFake(new SignatureVerdict(SignatureStatus.Unverifiable, null), out var calls);
+        var scan = ScanOf(Snap(101, null), Snap(202, null));
+
+        var result = await scanner.CollectSignatures(scan, new HashSet<int> { 101, 202 });
+
+        Assert.Equal(0, calls());
+        Assert.DoesNotContain(result.Failures, f => !f.Pid.HasValue);
+    }
+
+    [Fact]
+    public async Task 全Unverifiable含系统目录直判_Microsoft不遮蔽探针()
+    {
+        // 系统目录直判不经 WinVerifyTrust 通道，不能证明通道健康——不得遮蔽系统性失效判定
+        var (scanner, _) = ScannerWithFake(new SignatureVerdict(SignatureStatus.Unverifiable, null), out _);
+        var scan = ScanOf(
+            Snap(101, @"C:\Windows\System32\nonexistent-x1y2z3.exe", isSystemDirectory: true),
+            Snap(202, @"C:\app\b.exe"));
+
+        var result = await scanner.CollectSignatures(scan, new HashSet<int> { 101, 202 });
+
+        Assert.Contains(result.Failures, f => !f.Pid.HasValue);
+    }
+
+    [Fact]
+    public async Task 通道有健康结论_混有Unverifiable_不触发探针()
+    {
+        // 任一 Valid/Invalid/Unsigned 结论 = 通道工作正常（个别 Unverifiable 是文件级现象非通道级）
+        var (scanner, _) = ScannerWithFake(new SignatureVerdict(SignatureStatus.Unsigned, null), out _);
+        var scan = ScanOf(Snap(101, @"C:\app\a.exe"), Snap(202, null)); // 202 路径不可得 → Unverifiable
+
+        var result = await scanner.CollectSignatures(scan, new HashSet<int> { 101, 202 });
+
+        Assert.DoesNotContain(result.Failures, f => !f.Pid.HasValue);
     }
 
     [Fact]

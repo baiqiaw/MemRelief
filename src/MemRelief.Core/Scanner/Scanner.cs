@@ -108,7 +108,8 @@ public sealed class Scanner : IScanner
     }
 
     /// <summary>候选验签（两阶段协议采集侧，口径#9 仅候选执行 + 路径+mtime 缓存，issue #11/T-04）。
-    /// 仅改写候选行签名字段，其余行/失败记录/时长原样保留；编排方在 CandidateIds（rules）之后调用（scanner.md §4.3）。
+    /// 仅改写候选行签名字段；失败记录除验签通道系统性失效探针（issue #35-1，见 AppendSignatureChannelProbe）
+    /// 可能追加一条全局记录外原样保留，其余行/时长原样；编排方在 CandidateIds（rules）之后调用（scanner.md §4.3）。
     /// 线程池执行不阻塞调用方（PRD §3.4 扫描异步）；快照为一次性产物，本方法不重试、不做存在性预检（时点口径）。</summary>
     public Task<ScanResult> CollectSignatures(ScanResult snapshot, ISet<int> candidatePids)
     {
@@ -134,7 +135,36 @@ public sealed class Scanner : IScanner
                 ? candidate with { Signals = MergeSignatureSignals(candidate, verify) }
                 : candidate;
         }
-        return snapshot with { Snapshots = updated };
+        return snapshot with { Snapshots = updated, Failures = AppendSignatureChannelProbe(updated, snapshot.Failures) };
+    }
+
+    /// <summary>验签通道系统性失效探针（issue #35-1，2026-09-14 TL 裁决）：存在经信任通道判定的候选且结论全部
+    /// Unverifiable → 追加全局 SignalFailure（SignalId=9, Pid=null），触发即全局保守降级（rules 侧 hasGlobalFailure
+    /// 对全量进程置 compromised——契约既有语义：采集器级失败=扫描数据整体不可信）。判定集排除三类不经
+    /// WinVerifyTrust 通道、不能证明通道健康的形态：NotCollected（未参与验签）、系统目录直判 Microsoft、
+    /// 路径不可得型 Unverifiable（MergeSignatureSignals 短路分支，验签从未被调用）。</summary>
+    private static IReadOnlyList<SignalFailure> AppendSignatureChannelProbe(
+        ProcessSnapshot[] updated, IReadOnlyList<SignalFailure> failures)
+    {
+        var sawChannelUnverifiable = false;
+        foreach (var p in updated)
+        {
+            var status = p.Signals.SignatureStatus;
+            if (status is SignatureStatus.NotCollected or SignatureStatus.Microsoft
+                || (status == SignatureStatus.Unverifiable && p.ExecutablePath is null))
+            {
+                continue;
+            }
+            if (status != SignatureStatus.Unverifiable)
+            {
+                return failures;    // 通道有健康结论（Valid/Invalid/Unsigned 任一），无需继续
+            }
+            sawChannelUnverifiable = true;
+        }
+        return sawChannelUnverifiable
+            ? [.. failures, new SignalFailure(9, null, FailureKind.CollectorFailed,
+                "验签通道系统性失效：经验签通道判定的候选结论均为 Unverifiable（如 cryptsvc 停滞/提供方配置被清理），扫描结果已全局保守降级")]
+            : failures;
     }
 
     /// <summary>单候选验签（口径#9 四分支）：系统目录核心命中不验签按微软（UWP WindowsApps 例外，v1.2 裁决）；
