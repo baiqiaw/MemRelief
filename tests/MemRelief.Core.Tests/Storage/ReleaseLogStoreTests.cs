@@ -52,9 +52,10 @@ public class ReleaseLogStoreTests : IDisposable
             checkReleasedBytes);
     }
 
-    private static MemoryOverview Overview(long inUse, long commit) =>
+    private static MemoryOverview Overview(long inUse, long commit,
+        MemoryOverviewSource source = MemoryOverviewSource.NtQuery, string? detail = null) =>
         new(16L * 1024 * 1024 * 1024, inUse, commit, 24L * 1024 * 1024 * 1024, null,
-            MemoryOverviewSource.NtQuery);
+            source, detail);
 
     // 活动文件当前可解析 JSONL 行（只含有效行——含 junk 内容的断言走 ReadAll）
     private List<JsonElement> ReadValidJsonLines(string path) =>
@@ -112,6 +113,27 @@ public class ReleaseLogStoreTests : IDisposable
         Assert.True(store.Append(Report()).Persisted);
 
         Assert.Equal(2, ReadValidJsonLines(FilePath).Count);
+    }
+
+    // —— CASE：快照 source/detail 降级注记（issue #53：通道降级原因端到端留痕；脱敏评估=枚举名+常量串）——
+
+    [Fact]
+    public void 释放完成追加_快照携带Source与Detail()
+    {
+        var store = Create();
+        var report = Report(
+            before: Overview(10_000_000, 20_000_000,
+                source: MemoryOverviewSource.Pdh, detail: "NtQuery 主通道不可用，PDH 计数器兜底"),
+            after: Overview(8_000_000, 18_000_000));
+
+        store.Append(report);
+
+        var line = Assert.Single(ReadValidJsonLines(FilePath));
+        var before = line.GetProperty("before");
+        Assert.Equal("Pdh", before.GetProperty("source").GetString());
+        Assert.Equal("NtQuery 主通道不可用，PDH 计数器兜底", before.GetProperty("detail").GetString());
+        Assert.Equal("NtQuery", line.GetProperty("after").GetProperty("source").GetString());
+        Assert.Equal(JsonValueKind.Null, line.GetProperty("after").GetProperty("detail").ValueKind);
     }
 
     // —— CASE：时间字段 = 本地时区 ISO8601 含毫秒（F6 schema；映射归落盘层）——
@@ -506,6 +528,26 @@ public class ReleaseLogStoreTests : IDisposable
         var record = Assert.Single(read.Records);
         Assert.Equal(DateTime.MinValue, record.TimeUtc);
         Assert.Equal(5, record.MainReleasedBytes);
+        Assert.Equal(0, read.SkippedCorruptLines);
+    }
+
+    // —— CASE：v1.6 前旧格式行（快照仅 inUse/commit 键）经扩字段后读侧无损（issue #53 兼容承诺锚定）——
+
+    [Fact]
+    public void 旧格式行_快照缺source_detail键_ReadAll无损可读()
+    {
+        Directory.CreateDirectory(_dir);
+        var store = Create();
+        File.WriteAllText(FilePath,
+            """{"time":"2026-09-12T12:00:00+08:00","before":{"inUse":1,"commit":2},"after":{"inUse":3,"commit":4},"items":[],"mainReleasedBytes":5,"checkReleasedBytes":6}""");
+
+        var read = store.ReadAll();
+
+        var record = Assert.Single(read.Records);
+        Assert.Equal(1, record.Before!.InUseBytes);
+        Assert.Equal(2, record.Before.CommitBytes);
+        Assert.Equal(3, record.After!.InUseBytes);
+        Assert.Equal(4, record.After.CommitBytes);
         Assert.Equal(0, read.SkippedCorruptLines);
     }
 

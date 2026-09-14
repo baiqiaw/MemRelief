@@ -6,8 +6,8 @@ namespace MemRelief.Core.Storage;
 
 // 释放日志存储（storage 模块 T-12）。规格见 docs/specs/modules/storage.md §4.1；契约见 data-contracts.md §1.3/§1.4。
 // 落盘形态 = PRD F6 JSONL（data-contracts §1.3：时区/字段映射归本落盘层）：
-//   时间=报告 FinishedAtUtc 归一 Utc 后转本地时区 ISO8601（含毫秒）；快照{InUse, commit}=MemoryOverview
-//   字节值（单位口径沿契约"一律字节"，MB 仅为展示换算）；逐项结果=outcome 枚举名 + reason（Reason 缺省而
+//   时间=报告 FinishedAtUtc 归一 Utc 后转本地时区 ISO8601（含毫秒）；快照{InUse, commit, source, detail}=
+//   MemoryOverview 字节值与通道降级注记（issue #53；单位口径沿契约"一律字节"，MB 仅为展示换算）；逐项结果=outcome 枚举名 + reason（Reason 缺省而
 //   ErrorCode 存在时折入"Win32 错误码 N"，失败原因不丢）；主/校验释放量=Main/CheckReleasedBytes 原样。
 // 法（storage §6）：自有数据文件仅白名单与日志两个（法-4）——本类只写 releases.jsonl 与其轮转副本（.1~.3，
 //   法-4 明示"含轮转副本"），不写其他任何文件。
@@ -241,9 +241,12 @@ public sealed class ReleaseLogStore : IReleaseLogStore
 
     private static F6Line ToF6(ReleaseReport report)
     {
+        // source/detail 降级注记随快照落盘（issue #53，2026-09-14 TL 裁决端到端闭环）：
+        // Source=枚举名、Detail=常量串（生产端契约禁拼路径/环境信息），脱敏评估低风险
         static F6Snapshot? Map(MemoryOverview? overview) => overview is null
             ? null
-            : new F6Snapshot(overview.InUseBytes, overview.CommitBytes);
+            : new F6Snapshot(overview.InUseBytes, overview.CommitBytes,
+                overview.Source.ToString(), overview.Detail);
 
         static string? Reason(ReleaseItemResult item) =>
             string.IsNullOrWhiteSpace(item.Reason) && item.ErrorCode.HasValue
@@ -260,9 +263,10 @@ public sealed class ReleaseLogStore : IReleaseLogStore
             report.CheckReleasedBytes);
     }
 
-    // —— PRD F6 JSONL 行 schema（字段级定义见 PRD F6；camelCase 键与 F6 字段名 inUse/commit 对齐）——
+    // —— PRD F6 JSONL 行 schema（字段级定义见 PRD F6；camelCase 键与 F6 字段名 inUse/commit/source/detail 对齐；
+    //     source/detail 为可选注记，旧日志行缺键读侧按 null 容忍）——
 
-    private sealed record F6Snapshot(long? InUse, long? Commit);
+    private sealed record F6Snapshot(long? InUse, long? Commit, string? Source, string? Detail);
 
     private sealed record F6Item(
         int Pid, string? Name, string? ExecutablePath, string? CommandLine, string? Outcome, string? Reason);
