@@ -213,7 +213,7 @@ public sealed class RulesEngine : IRulesEngine
         {
             listUnavailable = true;
         }
-        else if (pack.ProtectedProcesses.Any(n => string.Equals(n, p.Name, StringComparison.OrdinalIgnoreCase)))
+        else if (pack.ContainsProtectedProcess(p.Name))   // 唯一匹配点谓词（data-contracts §2 T-08 裁决④，#36）
         {
             bases.Add(new Basis(0, $"系统保护名单命中：{p.Name}"));
             level = Promote(level, Level.Protected);
