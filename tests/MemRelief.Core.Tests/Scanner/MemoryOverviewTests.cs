@@ -193,6 +193,20 @@ public class MemoryOverviewTests
     }
 
     [Fact]
+    public void NtQuery页数乘页大小超long语义_钳位不抛溢出_InUse钳零()
+    {
+        // issue #54：原 checked 换算在 uint×uint 对抗输入下抛 OverflowException，与 standby/commit 钳位姿态不一致
+        var overview = MemoryOverviewSampler.FromNtQuery(
+            16L * 1024 * 1024 * 1024,
+            availablePages: 3_000_000_000u, committedPages: 1u, commitLimitPages: 1u,
+            pageSize: 4_000_000_000u,
+            standbyByPriority: null);
+
+        Assert.Equal(0, overview.InUseBytes);
+        Assert.Equal(MemoryOverviewSource.Degraded, overview.Source);
+    }
+
+    [Fact]
     public void 计数器毛刺超long语义_double转long钳顶不产生负值()
     {
         var overview = MemoryOverviewSampler.FromPdh(

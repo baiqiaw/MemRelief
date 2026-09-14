@@ -54,7 +54,7 @@ internal static partial class PdhMemoryChannel
     }
 
     /// <summary>采集 commit/available/standby 计数器。任一核心计数器失败 → false（走终底）；standby 缺任一 → null；
-    /// standby 合计 ≤0 亦按不可得上报 null（与 NtQuery 全零降级口径对齐）。PDH 不可用 → false。</summary>
+    /// standby 合计原样上报，≤0 由 FromPdh 按 >0 判据收口为降级（与 NtQuery 全零降级口径对齐）。PDH 不可用 → false。</summary>
     public static bool TryQuery(
         out double committedBytes, out double commitLimitBytes, out double availableBytes, out double? standbyBytes)
     {

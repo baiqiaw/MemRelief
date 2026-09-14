@@ -45,7 +45,7 @@ public sealed class MemoryOverviewSampler
         var standbyMissing = standby is null;
         return new MemoryOverview(
             physicalTotalBytes,
-            ClampInUse(physicalTotalBytes, checked((long)availablePages * pageSize)),
+            ClampInUse(physicalTotalBytes, ClampToLong((double)availablePages * pageSize)),
             ClampToLong((double)committedPages * pageSize),
             ClampToLong((double)commitLimitPages * pageSize),
             standby,
