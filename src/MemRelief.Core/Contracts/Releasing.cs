@@ -85,7 +85,8 @@ public enum TreeState
 /// <summary>
 /// 释放逐项结果 8 值分类（契约 §1.3）。NeedsElevation 与 Blocked 的权限二分（T-10，PRD F3-7）：
 /// 拒绝访问按目标所有者/令牌类型区分——非当前用户/服务/PPL → NeedsElevation；
-/// 当前用户且非服务仍失败 → Blocked（附系统错误码）；所有者不可读 fail-safe 归 NeedsElevation
+/// 当前用户且非服务仍失败 → Blocked（附系统错误码）；所有者不可读 fail-safe 归 NeedsElevation。
+/// 服务收敛（issue #39-2）：当前用户运行的服务（快照 ServiceName 判定）亦归 NeedsElevation
 /// （<see cref="Releaser.AccessDeniedClassifier"/> 承载）。
 /// </summary>
 public enum ReleaseItemOutcome

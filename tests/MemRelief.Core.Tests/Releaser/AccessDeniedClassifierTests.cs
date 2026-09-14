@@ -30,6 +30,25 @@ public class AccessDeniedClassifierTests
         Assert.Contains("被拦截", reason);
     }
 
+    // —— 服务收敛（issue #39-2，2026-09-14 TL 裁决立项）：以当前用户身份运行的服务 → NeedsElevation ——
+
+    [Fact]
+    public void 当前用户运行的服务_NeedsElevation_注明服务名()
+    {
+        // 服务进程受 SCM/会话隔离保护，拒绝访问非"用户态拦截"可断言场景；快照 ServiceName（口径 #8）为判定输入
+        var (outcome, reason) = AccessDeniedClassifier.Classify("Tester", CurrentUser, 5, "强制结束", serviceName: "svc-x");
+        Assert.Equal(ReleaseItemOutcome.NeedsElevation, outcome);
+        Assert.Contains("svc-x", reason);
+        Assert.Contains("服务", reason);
+    }
+
+    [Fact]
+    public void 当前用户非服务_不受服务收敛影响_Blocked()
+    {
+        var (outcome, _) = AccessDeniedClassifier.Classify("Tester", CurrentUser, 5, "强制结束", serviceName: null);
+        Assert.Equal(ReleaseItemOutcome.Blocked, outcome);
+    }
+
     // —— 令牌/快照两源皆不可读：fail-safe → NeedsElevation ——
 
     [Fact]

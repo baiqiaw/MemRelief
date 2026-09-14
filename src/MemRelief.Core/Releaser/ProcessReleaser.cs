@@ -12,7 +12,7 @@ namespace MemRelief.Core.Releaser;
 /// 节点出现优先于跳过项出现（跨"祖先树连带跳过/自身树节点"场景，显式勾选的节点照常执行）。
 /// 权限二分（T-10，PRD F3-7）：拒绝访问经 <see cref="AccessDeniedClassifier"/> 按所有者/令牌二分
 /// ——打开受拒按快照所有者（无句柄令牌不可得）；强杀拒绝按执行期令牌名优先、快照 OwnerUser 回退；
-/// 非拒绝错误维持机械 Blocked+错误码。
+/// 服务收敛判定输入=快照 ServiceName（issue #39-2）；非拒绝错误维持机械 Blocked+错误码。
 /// 取消（T-10，PRD F3-5）：<see cref="Cancel"/> 跳过未开始的树、进行中树等待收尾（不中断强杀）；
 /// 取消收尾仍发完成事件（至多一次），报告记已执行部分（PRD F3-6）。
 /// 报告采样（T-10，③.s4 裁决⑤）：Before=Execute 进入时（第一树启动前）、After=全部树终态后；
@@ -255,7 +255,8 @@ public sealed class ProcessReleaser : IReleaser
                         // 该路径无执行期身份佐证，判定依据在 Reason 注明（cross-review 收口）
                         var (outcome, reason) = AccessDeniedClassifier.Classify(
                             snapshot.OwnerUser, CurrentUserName, openError, "打开进程",
-                            ownerSourceNote: "按扫描快照所有者判定");
+                            ownerSourceNote: "按扫描快照所有者判定",
+                            serviceName: snapshot.Signals.ServiceName);
                         items.Add(SnapshotItem(snapshot, outcome, reason, openError));
                     }
                     else
@@ -415,12 +416,13 @@ public sealed class ProcessReleaser : IReleaser
             var error = entry.Live.Terminate();
             if (error != null && !entry.Live.WaitExit(0))
             {
-                // 强杀失败且仍存活：拒绝访问按所有者/令牌二分（PRD F3-7），其余错误机械事实 Blocked
+                // 强杀失败且仍存活：拒绝访问按所有者/令牌二分（PRD F3-7；服务收敛判定输入=快照 ServiceName，#39-2），其余错误机械事实 Blocked
                 if (error == Win32Errors.ErrorAccessDenied)
                 {
                     var (outcome, reason) = AccessDeniedClassifier.Classify(
                         entry.Live.TryGetTokenUserName() ?? entry.Snapshot.OwnerUser,
-                        CurrentUserName, error.Value, "强制结束");
+                        CurrentUserName, error.Value, "强制结束",
+                        serviceName: entry.Snapshot.Signals.ServiceName);
                     items.Add(SnapshotItem(entry.Snapshot, outcome, reason, error));
                 }
                 else
