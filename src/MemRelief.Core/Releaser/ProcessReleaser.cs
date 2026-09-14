@@ -270,6 +270,19 @@ public sealed class ProcessReleaser : IReleaser
                 inflight.Add(snapshot.Pid, (snapshot, live));
                 if (!live.IdentityMatches(snapshot))
                 {
+                    // 尸体歧义消解（#41）：打开对象已终止且创建时间与快照精确一致 → 快照进程自身已退出
+                    //（PID 复用对象创建时间必异——复用须旧进程先终结，复用者创建时间严格晚于快照值；
+                    // 终止态对象名称读取受限，不可读非身份证据）→ Exited；
+                    // 其余不一致/不可判保持 IdentityChanged 不执行（fail-closed 防复用杀错，PRD F3-2）
+                    if (live.CreationTimeMatches(snapshot) && live.WaitExit(0))
+                    {
+                        inflight.Remove(snapshot.Pid);
+                        live.Dispose();
+                        items.Add(SnapshotItem(snapshot, ReleaseItemOutcome.Exited,
+                            "执行时进程已退出（终止态对象创建时间与快照一致）"));
+                        continue;
+                    }
+
                     // 身份不一致或不可判（快照哨兵/存活侧读取失败）：跳过不执行，防 PID 复用杀错（fail-closed）
                     inflight.Remove(snapshot.Pid);
                     live.Dispose();

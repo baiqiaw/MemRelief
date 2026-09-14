@@ -36,6 +36,9 @@ internal sealed class FakeLiveProcess : ILiveProcess
     public int Pid { get; }
     public bool IdentityMatch { get; set; } = true;
 
+    /// <summary>创建时间单项核验（#41 尸体歧义消解锚；IdentityMatch=false 时区分"已退出尸体"与"真复用"）。</summary>
+    public bool CreationTimeMatch { get; set; } = true;
+
     /// <summary>窗口自查结果：null=自查失败（优雅兜底语义）；空集=确认无窗口；非空=待投递句柄。</summary>
     public IReadOnlyList<nint>? Windows { get; set; } = Array.Empty<nint>();
 
@@ -68,6 +71,12 @@ internal sealed class FakeLiveProcess : ILiveProcess
     {
         Log(Pid, "identity");
         return IdentityMatch;
+    }
+
+    public bool CreationTimeMatches(ProcessSnapshot snapshot)
+    {
+        Log(Pid, "creation");
+        return CreationTimeMatch;
     }
 
     public IReadOnlyList<nint>? CollectTopLevelWindows()

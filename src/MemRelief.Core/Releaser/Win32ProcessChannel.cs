@@ -62,6 +62,18 @@ internal sealed class Win32LiveProcess : ILiveProcess
 
     public bool IdentityMatches(ProcessSnapshot snapshot)
     {
+        if (!CreationTimeMatches(snapshot))
+        {
+            return false;
+        }
+
+        var liveName = TryGetImageName();
+        return liveName is not null
+            && string.Equals(liveName, snapshot.Name, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public bool CreationTimeMatches(ProcessSnapshot snapshot)
+    {
         // 快照创建时间哨兵（采集不可读，T-01 裁决②）不参与比较：不可判 = 不可杀（fail-closed）
         if (snapshot.CreationTimeUtc == DateTime.MinValue)
         {
@@ -81,14 +93,7 @@ internal sealed class Win32LiveProcess : ILiveProcess
         }
 
         var fileTime = (long)(((ulong)creation.dwHighDateTime << 32) | (uint)creation.dwLowDateTime);
-        if (fileTime < 0 || DateTime.FromFileTimeUtc(fileTime) != snapshot.CreationTimeUtc)
-        {
-            return false;
-        }
-
-        var liveName = TryGetImageName();
-        return liveName is not null
-            && string.Equals(liveName, snapshot.Name, StringComparison.OrdinalIgnoreCase);
+        return fileTime >= 0 && DateTime.FromFileTimeUtc(fileTime) == snapshot.CreationTimeUtc;
     }
 
     public IReadOnlyList<nint>? CollectTopLevelWindows() => ExecutionWindowProbe.TryCollectTopLevelWindows(Pid);

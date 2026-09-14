@@ -82,6 +82,61 @@ public class ProcessReleaserTests
         Assert.Equal(ReleaseItemOutcome.IdentityChanged, Item(report.Items, 7).Outcome);
     }
 
+    // —— 尸体歧义消解（#41）：终止态对象名称读取受限（QueryFullProcessImageName err 31），
+    //      按创建时间核验区分"已退出"与"身份变更" ——
+
+    [Fact]
+    public void Execute_终止态对象创建时间一致_名称不可读归Exited()
+    {
+        // 扫描到执行间进程自然退出：打开落在尸体窗口（对象已终止、创建时间一致、名称读取受限）
+        // → 快照进程自身已退出（Exited），非身份变更；PID 复用对象必然存活且创建时间必异
+        var opener = new FakeProcessOpener();
+        var live = opener.AddLive(1, identityMatch: false);
+        live.CreationTimeMatch = true;
+        live.ExitOnProbe = 1; // 终止态：身份段探活即已退出
+        var releaser = CreateReleaser(opener, out _);
+
+        var plan = new TreePlan(1, new[] { Node(1) }, Array.Empty<SkippedNode>(), 0);
+        var report = Execute(releaser, new[] { plan });
+
+        var item = Item(report.Items, 1);
+        Assert.Equal(ReleaseItemOutcome.Exited, item.Outcome);
+        Assert.Equal(0, live.TerminateCalls); // 尸体不执行任何结束动作
+        Assert.True(live.Disposed);
+    }
+
+    [Fact]
+    public void Execute_终止态对象创建时间不一致_仍IdentityChanged()
+    {
+        // 已终止但创建时间不符（异进程尸体，如复用后自退）：保守保持 IdentityChanged 不执行
+        var opener = new FakeProcessOpener();
+        var live = opener.AddLive(2, identityMatch: false);
+        live.CreationTimeMatch = false;
+        live.ExitOnProbe = 1;
+        var releaser = CreateReleaser(opener, out _);
+
+        var plan = new TreePlan(2, new[] { Node(2) }, Array.Empty<SkippedNode>(), 0);
+        var report = Execute(releaser, new[] { plan });
+
+        Assert.Equal(ReleaseItemOutcome.IdentityChanged, Item(report.Items, 2).Outcome);
+        Assert.True(live.Disposed);
+    }
+
+    [Fact]
+    public void Execute_存活对象创建时间一致但名称不可读_仍IdentityChanged()
+    {
+        // 对象存活（探活超时）+ 创建时间一致 + 名称不可读：不满足终止态前提，fail-closed 不变
+        var opener = new FakeProcessOpener();
+        var live = opener.AddLive(3, identityMatch: false);
+        live.CreationTimeMatch = true; // ExitOnProbe 默认 int.MaxValue = 存活
+        var releaser = CreateReleaser(opener, out _);
+
+        var plan = new TreePlan(3, new[] { Node(3) }, Array.Empty<SkippedNode>(), 0);
+        var report = Execute(releaser, new[] { plan });
+
+        Assert.Equal(ReleaseItemOutcome.IdentityChanged, Item(report.Items, 3).Outcome);
+    }
+
     // —— 打开结局分类 ——
 
     [Fact]

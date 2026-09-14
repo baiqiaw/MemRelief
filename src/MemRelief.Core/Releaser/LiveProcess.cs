@@ -38,9 +38,17 @@ internal interface ILiveProcess : IDisposable
     /// <summary>
     /// 身份校验（PRD F3-2）：进程名（OrdinalIgnoreCase）与创建时间（FILETIME 精确值）均与快照一致才 true。
     /// 任一侧不可读（含快照创建时间哨兵 DateTime.MinValue，data-contracts §2 T-01 裁决②）→ false
-    /// （不可判 = 不可杀，fail-closed，上层映射 IdentityChanged）。
+    /// （不可判 = 不可杀，fail-closed，上层映射 IdentityChanged；终止态尸体的例外消解见
+    /// <see cref="CreationTimeMatches"/>）。
     /// </summary>
     bool IdentityMatches(ProcessSnapshot snapshot);
+
+    /// <summary>
+    /// 创建时间单项核验（FILETIME 精确值；快照哨兵/存活侧读取失败 → false）。
+    /// 尸体歧义消解锚（#41）：终止态对象 QueryFullProcessImageName 受限（err 31），名称不可读非身份证据；
+    /// 创建时间精确一致排除 PID 复用（复用对象创建时间必异），供上层在不一致分支区分"已退出"与"身份变更"。
+    /// </summary>
+    bool CreationTimeMatches(ProcessSnapshot snapshot);
 
     /// <summary>
     /// 执行期窗口自查（data-contracts §2 ③.s4 裁决⑦）：顶层可见窗口句柄（复用口径 #4 的
