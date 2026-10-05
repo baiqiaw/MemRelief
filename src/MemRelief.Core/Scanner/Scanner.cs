@@ -12,6 +12,7 @@ public sealed class Scanner : IScanner
 {
     private readonly NativeProcessEnumerator _native = new();
     private readonly WmiCommandLineSource _wmi = new();
+    private readonly FileDescriptionSource _fileDescriptions = new();
     private readonly SignatureCache _signatureCache;
     private readonly Func<string, SignatureVerdict>? _verifierOverride;
 
@@ -36,6 +37,26 @@ public sealed class Scanner : IScanner
     /// 经 SignalFailure #12/#15 链承接（保守方向），防击穿采集段 ≤2.0s 硬预算。</summary>
     internal static readonly TimeSpan SourceChannelTimeout = TimeSpan.FromMilliseconds(1500);
 
+    /// <summary>exe 元数据通道时限（#58 评审修复）：FileVersionInfo 对网络共享/云占位路径可按 SMB
+    /// 超时秒级阻塞——同 WMI/来源通道先例同级施加时限；超时=空字典仅说明退化（非保护性数据面），
+    /// 弃任务保底观察异常防 UnobservedTaskException。</summary>
+    private static readonly TimeSpan DescriptionChannelTimeout = TimeSpan.FromMilliseconds(1500);
+
+    /// <summary>说明通道时限收口（#58 评审修复）：超时降级空字典，读通道真异常（OOM 级，Read 契约外）照常上抛。</summary>
+    private static async Task<Dictionary<int, (string? FileDescription, string? CompanyName)>> CollectDescriptionsAsync(
+        Task<Dictionary<int, (string? FileDescription, string? CompanyName)>> task)
+    {
+        try
+        {
+            return await task.ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            _ = task.ContinueWith(static t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+            return [];
+        }
+    }
+
     /// <summary>采集快照（口径#1/#13 数据侧 + 基础字段 + T-02 活动信号五通道 + T-03 来源三通道 + 失败记录框架）。</summary>
     public async Task<ScanResult> TakeSnapshot()
     {
@@ -48,6 +69,9 @@ public sealed class Scanner : IScanner
         // CPU 差分窗口起点随枚举捕获（grilling 裁决②：窗口=TakeSnapshot 采集段）
         var (rows, takenAtUtc) = _native.Enumerate();
 
+        // exe 元数据通道与信号采集重叠（#58）：本地文件读取，线程池执行不拖采集关键路径
+        var descriptionsTask = Task.Run(() => _fileDescriptions.Read(rows));
+
         var sources = await sourcesTask.ConfigureAwait(false);
         // 活动信号四通道（窗口/TCP/服务/目录解析）+ 来源通道 + CPU 差分终点二次采样，均在采集段内完成
         var signals = CollectSignals(rows, sources);
@@ -56,7 +80,8 @@ public sealed class Scanner : IScanner
         var merged = MergeCommandLines(rows, commandLines);
 
         stopwatch.Stop();
-        return SnapshotAssembler.Assemble(merged, signals, takenAtUtc, stopwatch.ElapsedMilliseconds);
+        var assembled = SnapshotAssembler.Assemble(merged, signals, takenAtUtc, stopwatch.ElapsedMilliseconds);
+        return MergeFileDescriptions(assembled, await CollectDescriptionsAsync(descriptionsTask).ConfigureAwait(false));
     }
 
     /// <summary>活动信号采集编排（T-02）：四通道互不相依顺序执行 + CPU 终点二次采样；单通道失败以全局 failure 降级不击穿。</summary>
@@ -203,6 +228,37 @@ public sealed class Scanner : IScanner
         // T-05 实装（issue #9）；通道梯与降级语义收口于 MemoryOverviewSampler（纯函数单测承载）
         var sampler = new MemoryOverviewSampler();
         return Task.FromResult(sampler.Sample());
+    }
+
+    /// <summary>说明元数据合并（#58，纯函数）：按 pid 补写 FileDescription/CompanyName；descriptions 空/缺键 → 行原样；
+    /// 非保护性数据面，无任何失败登记（说明缺席=展示层退显公司名或留空，见 DescriptionStore.Resolve）。</summary>
+    internal static ScanResult MergeFileDescriptions(
+        ScanResult snapshot,
+        Dictionary<int, (string? FileDescription, string? CompanyName)>? descriptions)
+    {
+        if (descriptions is not { Count: > 0 })
+        {
+            return snapshot;
+        }
+
+        var updated = new ProcessSnapshot[snapshot.Snapshots.Count];
+        var changed = false;
+        for (var i = 0; i < snapshot.Snapshots.Count; i++)
+        {
+            var p = snapshot.Snapshots[i];
+            if (descriptions.TryGetValue(p.Pid, out var meta)
+                && (p.FileDescription != meta.FileDescription || p.CompanyName != meta.CompanyName))
+            {
+                updated[i] = p with { FileDescription = meta.FileDescription, CompanyName = meta.CompanyName };
+                changed = true;
+            }
+            else
+            {
+                updated[i] = p;
+            }
+        }
+
+        return changed ? snapshot with { Snapshots = updated } : snapshot;
     }
 
     /// <summary>命令行合并（纯函数）：按 pid 补全；commandLines=null=通道级失败→全量保持 null 无记录（裁决⑤）。</summary>

@@ -75,7 +75,9 @@ public record ProcessSnapshot(
     long PrivateCommittedBytes,
     string? CommandLine = null,
     string? OwnerUser = null,
-    SignalSet? Signals = null)
+    SignalSet? Signals = null,
+    string? FileDescription = null,
+    string? CompanyName = null)
 {
     public SignalSet Signals { get; init; } = Signals ?? new SignalSet();
 }

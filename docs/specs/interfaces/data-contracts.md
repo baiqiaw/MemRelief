@@ -18,7 +18,7 @@
 
 ### 1.1 扫描域（scanner 提供）
 
-- **`ProcessSnapshot`**：`Pid`（int，**唯一键，违约定=扫描失败**）、`ParentPid`、`Name`、`ExecutablePath`（可空=受保护/系统/不可读，不可读须伴随 Unreadable SignalFailure）、`CreationTimeUtc`（**Kind 须为 Utc**；身份校验与 PID 复用判定的采集侧输入；不可读=MinValue 哨兵，§2 T-01 裁决）、`PrivateCommittedBytes`（long）、`CommandLine`（可空，WMI 通道；null=不可读，通道级失败经 SignalFailure 登记不可行——v1 接受仅字段级 null 表达）、`OwnerUser`（可空=不可读；跨用户预标依据；格式=裸用户名，§2 T-01 裁决）、`Signals`（SignalSet，1..1）。单位一律字节（PRD 的 MB 为展示换算）。
+- **`ProcessSnapshot`**：`Pid`（int，**唯一键，违约定=扫描失败**）、`ParentPid`、`Name`、`ExecutablePath`（可空=受保护/系统/不可读，不可读须伴随 Unreadable SignalFailure）、`CreationTimeUtc`（**Kind 须为 Utc**；身份校验与 PID 复用判定的采集侧输入；不可读=MinValue 哨兵，§2 T-01 裁决）、`PrivateCommittedBytes`（long）、`CommandLine`（可空，WMI 通道；null=不可读，通道级失败经 SignalFailure 登记不可行——v1 接受仅字段级 null 表达）、`OwnerUser`（可空=不可读；跨用户预标依据；格式=裸用户名，§2 T-01 裁决）、`Signals`（SignalSet，1..1）、`FileDescription`/`CompanyName`（可空，exe 元数据通道 #58；**非保护性数据面**——失败仅 null，无 SignalFailure、不触发保守兜底，语义同 CommandLine 字段级 null 口径）。单位一律字节（PRD 的 MB 为展示换算）。
 - **`SignalSet`**（字段级；**仅采集型信号**，名单匹配类判定归 rules 派生）：
 
   | 字段 | 类型/枚举 | 对应口径# |
@@ -62,6 +62,7 @@
 - **`WhitelistEntry`**：`Name`（匹配键）、`AddedAtUtc`、`Path`（可空，记录性）、`Note`（可空）。
 - **`WhitelistSnapshot`**：不可变 `WhitelistEntry` 只读集（一次扫描一个一致视图）。名称匹配语义 = OrdinalIgnoreCase（v1 已知边界：同名不同路径一并排除）；**`ContainsName` 谓词为全系统唯一白名单匹配点**（rules/releaser 一律复用，禁止第二处实现）。
 - **`RulePack`**：`ResidualPatterns[]`（子串）、`ResidentApps[]`（精确名）、`SecurityApps[]`（名+签名方；Signer 可空=null 仅按名称通道匹配）、`ProtectedProcesses[]`（穷举名）。内容基线引用 [PRD 附录名单清单](../../PRD.md)；**加载失败经编排方传入空包，空名单按"保护性依据缺失"兜底（v1 不区分真实空与失败，接受保守误降级）**。
+- **`ProcessDescriptionEntry`/`IDescriptionStore`**（#58，说明手册）：`Match`（名/路径子串，OrdinalIgnoreCase）→`Description`（中文说明）；装载 fail-safe 返回空表不抛异常。**与 RulePack 刻意分立**——说明为非保护性数据，失败仅说明退化（空手册），禁并入 RulePack 整包 Empty 降级。取值优先级纯函数：手册命中 > `ProcessSnapshot.FileDescription` > `CompanyName` > 无（ui 展示层消费，不参与判定）。
 
 ### 1.5 事件契约（异步通知；同步结果走方法返回值）
 
@@ -87,6 +88,8 @@
 > 2026-09-08（T-02 开工裁决）：① 手写 P/Invoke 通道扩展：窗口（EnumWindows/GetWindowThreadProcessId/GetWindowLong/DwmGetWindowAttribute）、TCP 表（GetExtendedTcpTable）、服务枚举（OpenSCManager 系）——WNDENUMPROC 回调委托与 DWMWA_CLOAKED 在 `allowMarshaling=false` 下 CsWin32 实测缺型，变长表结构生成访问形态不稳（system-spec §4 第④项已泛化）；窗口通道经 `[UnmanagedCallersOnly]`+GCHandle 承载回调状态。② CPU 差分窗口=TakeSnapshot 采集段（grilling 裁决②重申）：起点随枚举句柄捕获（GetProcessTimes 同调用近零成本），终点段内二次重开采样；不可得（窗口内退出/受拒/无采样）→ `CpuDeltaSeconds=null` + SignalFailure #7（口径兜底"不可读→不进✅"，rules 以 Failures 为事实源）。③ 同 pid 多服务（svchost 分组）：`ServiceName` 取首个，`ServiceRestartOnFailure`=任一配置重启动作即 true；QueryServiceConfig2 读取失败 → null + SignalFailure #8。④ `IsSystemDirectory=null` 仅表示路径不可得（编号 100 已覆盖，不重复 #10）；清单解析失败 → 全 null+全局 #10（rules 按保守视为系统目录）。⑤ OpenSCManager 走最小只读权限（CONNECT|ENUMERATE_SERVICE，ALL_ACCESS 普通权限 err=5 实证 2026-09-08），与"默认普通权限+按需提权"设计一致；枚举缓冲不足回 ERROR_MORE_DATA(234)（实测，非 122）。实现于 T-02。
 >
 > 2026-10-05（#57 契约修订，语义反转补评审记录）：`Query` 匹配语义两处反转——①名称匹配由全字 `Equals` 改子串 `Contains`（OrdinalIgnoreCase 不变）；②「Pid 与名同时给出时 Pid 优先（名参数忽略）」改「双参取并集」（纯数字输入由 ui 侧双参下发，Pid 精确 ∪ 名称子串）；空名/null 名均不构成名称条件（名与 Pid 均无 → 空集）。同批同步 rules.md §4.1 查询用例与 PRD F2（v1.9）。触发：issue #57（用户缺陷报告——全字匹配致"搜索无效果"）。
+>
+> 2026-10-05（#58 契约新增，兼容性新增字段）：① `ProcessSnapshot` 增 `FileDescription`/`CompanyName`（可空，exe 元数据通道，非保护性——失败仅 null 无 SignalFailure）；② 持久化域新增 `ProcessDescriptionEntry`/`IDescriptionStore`（说明手册 fail-safe 装载，与 RulePack 分立——非保护性数据禁并入整包 Empty 降级）。新增=兼容，无删除/语义反转。同批同步 scanner.md §4.1 采集快照与 PRD F2（v1.10）。触发：issue #58（用户缺陷报告——进程树看不出进程作用）。
 >
 > 2026-09-11（#33 裁决 a）：2026-09-08 ③.s4 段①⑧⑨ 的实现归属由 T-14 改派 **T-27**（新增 issue #34，T-14 AC 未含该三项、WBS 将自动重扫归 T-16，双源冲突经 TL 裁决收口）；① 格式细则裁决仍归 T-16 开工裁决，与 T-27 解析侧对接。
 >

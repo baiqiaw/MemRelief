@@ -36,6 +36,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IRulesEngine _rules;
     private readonly IWhitelistStore _whitelistStore;
     private readonly IRulePackStore? _rulePackStore;
+    private readonly IDescriptionStore? _descriptionStore;
+    private readonly IReadOnlyList<ProcessDescriptionEntry> _descriptionEntries = [];
     private readonly IReleaser? _releaser;
     private readonly IReleaseLogStore? _logStore;
     private readonly IReleaseConfirmDialog? _confirmDialog;
@@ -95,13 +97,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
         IReadOnlyList<RestartFailedItem>? restartFailedItems = null,
         Action? shutdown = null,
         Action<string>? shellOpen = null,
-        IRulePackStore? rulePackStore = null)
+        IRulePackStore? rulePackStore = null,
+        IDescriptionStore? descriptionStore = null)
     {
         StateMachine = stateMachine;
         _coordinator = coordinator;
         _rules = rules;
         _whitelistStore = whitelistStore;
         _rulePackStore = rulePackStore;
+        _descriptionStore = descriptionStore;
+        _descriptionEntries = descriptionStore?.Load() ?? [];   // fail-safe：失败仅空手册（#58 非保护性数据面）
         _releaser = releaser;
         _logStore = logStore;
         _confirmDialog = confirmDialog;
@@ -577,6 +582,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var name = text; // 模糊查询（#57）：数字输入也并集按名查，Core Query 双参取并集
             var snapshot = _snapshot;
             var classifications = _classifications;
+            var byPid = snapshot.Snapshots.GroupBy(p => p.Pid).ToDictionary(g => g.Key, g => g.First());
             var results = await Task.Run(() => _rules.Query(snapshot, classifications, name, pid))
                 .ConfigureAwait(true);
             if (seq != _searchSeq)
@@ -584,8 +590,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 return; // 过期响应：期间有新查询发起，丢弃旧结果
             }
 
-            SearchResults = results.Select(r => new SearchResultRow(
-                r.Pid, r.Name, DisplayText.QueryOutcome(r.Outcome), DisplayText.Reason(r.Bases))).ToList();
+            SearchResults = results.Select(r =>
+            {
+                var p = byPid.GetValueOrDefault(r.Pid);
+                return new SearchResultRow(
+                    r.Pid, r.Name, DisplayText.QueryOutcome(r.Outcome), DisplayText.Reason(r.Bases),
+                    Description: p is null ? null : ResolveDescription(p));
+            }).ToList();
             SearchStatusText = results.Count == 0 ? "无匹配进程" : $"匹配 {results.Count} 项";
         }
         catch (Exception ex)
@@ -692,8 +703,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     Join(pack.ResidualPatterns)),
                 new("🚫 安全软件", "命中 → 🚫（进程名 + 签名方双通道）",
                     Join(pack.SecurityApps.Select(a => a.Signer is null ? a.Name : $"{a.Name}（签名方：{a.Signer}）").ToList())),
+                .. BuildDescriptionSection(),
             ];
         }
+    }
+
+    /// <summary>说明手册节（#58 第五节）：打开时重载（实时反映资源迭代）；未注入手册库则不出节。</summary>
+    private IEnumerable<BuiltinListSection> BuildDescriptionSection()
+    {
+        if (_descriptionStore is null)
+        {
+            return [];
+        }
+
+        var entries = _descriptionStore.Load();
+        return
+        [
+            new("📖 进程说明手册", "命中（名/路径子串）→ 行内展示中文说明；未命中退显 exe 自带说明/公司名",
+                entries.Count == 0 ? "（空）" : string.Join("、", entries.Select(e => $"{e.Match}→{e.Description}"))),
+        ];
     }
 
     /// <summary>
@@ -1024,7 +1052,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     /// 重建后按重启链失败项清单叠加高亮（PRD F3-6，不自动恢复勾选）。</summary>
     private void RebuildGroups(IReadOnlyList<Classification> classifications)
     {
-        var index = TreeIndex.Build(_snapshot!);
+        var index = TreeIndex.Build(_snapshot!, ResolveDescription);
         Groups = new[] { Level.Recommend, Level.Caution, Level.Protected }
             .Select(level => new LevelGroup(level, ProjectRows(classifications, level, index)))
             .Where(g => g.Rows.Count > 0)
@@ -1078,6 +1106,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private static IEnumerable<ClassificationRow> ProjectRows(
         IReadOnlyList<Classification> classifications, Level level, TreeIndex index) =>
         classifications.Where(c => c.Level == level).Select(c => new ClassificationRow(c, index));
+
+    /// <summary>进程说明解析（#58）：手册 &gt; exe FileDescription &gt; CompanyName &gt; 无；
+    /// 手册构造时装载一次（fail-safe 空表），面板打开时另行重载。</summary>
+    private string? ResolveDescription(ProcessSnapshot p) =>
+        DescriptionStore.Resolve(p.Name, p.ExecutablePath, p.FileDescription, p.CompanyName, _descriptionEntries);
 
     /// <summary>状态提示文案（五态骨架映射+释放进度计数+报告可重扫提示；零推荐空态=PRD §3.7 行）。</summary>
     private void UpdateStatusText()
@@ -1152,8 +1185,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
-/// <summary>搜索结果行（QueryResult 的文案投影：判定结果+依据，R02 搜索框输出）。</summary>
-public sealed record SearchResultRow(int Pid, string Name, string OutcomeText, string ReasonText);
+/// <summary>搜索结果行（QueryResult 的文案投影：判定结果+依据+进程说明，R02 搜索框输出）。</summary>
+public sealed record SearchResultRow(int Pid, string Name, string OutcomeText, string ReasonText, string? Description = null);
 
 /// <summary>
 /// 白名单面板条目行（T-26，WhitelistEntry 只读投影）：名称/添加时间本地文案/路径/备注；

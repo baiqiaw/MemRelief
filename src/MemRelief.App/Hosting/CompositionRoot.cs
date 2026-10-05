@@ -43,6 +43,9 @@ public static class CompositionRoot
         // storage 模块：内置名单装载（T-13 真实实现）
         IRulePackStore rulePackStore = new RulePackStore();
 
+        // storage 模块：进程说明手册装载（#58，非保护性——失败仅说明退化）
+        IDescriptionStore descriptionStore = new DescriptionStore();
+
         // storage 模块：白名单存储（T-11 真实实现，T-15 接线——构造即装载，损坏自愈经 Recovery 通道提示）
         IWhitelistStore whitelistStore = new WhitelistStore();
 
@@ -59,7 +62,8 @@ public static class CompositionRoot
         return new MainViewModel(
             new UiStateMachine(), coordinator, rules, whitelistStore,
             releaser, logStore, confirmDialog, restarter, marshal, restartFailedItems, shutdown,
-            rulePackStore: rulePackStore);
+            rulePackStore: rulePackStore,
+            descriptionStore: descriptionStore);
     }
 
     /// <summary>

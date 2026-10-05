@@ -42,6 +42,19 @@ public enum RulePackList
     ProtectedProcesses,
 }
 
+/// <summary>进程说明手册条目（#58）：Match 为进程名/路径子串（OrdinalIgnoreCase），Description 为中文说明。</summary>
+public record ProcessDescriptionEntry(string Match, string Description);
+
+/// <summary>
+/// 进程说明手册装载（#58，展示层数据源）。与 <see cref="IRulePackStore"/> 刻意分立：
+/// 说明为非保护性数据——装载失败仅说明退化（空手册），禁并入 RulePack（后者任一失败整包 Empty 会误伤判定）。
+/// </summary>
+public interface IDescriptionStore
+{
+    /// <summary>装载说明手册。缺失/损坏/读取异常一律 fail-safe 返回空表，不抛异常。</summary>
+    IReadOnlyList<ProcessDescriptionEntry> Load();
+}
+
 /// <summary>名单加载失败上报（List 定位名单，Reason 人读）。</summary>
 public record RulePackLoadFailure(RulePackList List, string Reason);
 

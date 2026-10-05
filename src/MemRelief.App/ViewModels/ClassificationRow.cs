@@ -13,22 +13,31 @@ internal sealed class TreeIndex
 {
     private readonly IReadOnlyDictionary<int, ProcessSnapshot> _byPid;
     private readonly ILookup<int, ProcessSnapshot> _children;
+    private readonly Func<ProcessSnapshot, string?>? _describe;
 
     private TreeIndex(
         IReadOnlyDictionary<int, ProcessSnapshot> byPid,
-        ILookup<int, ProcessSnapshot> children)
+        ILookup<int, ProcessSnapshot> children,
+        Func<ProcessSnapshot, string?>? describe)
     {
         _byPid = byPid;
         _children = children;
+        _describe = describe;
     }
 
-    internal static TreeIndex Build(ScanResult snapshot) => new(
+    internal static TreeIndex Build(ScanResult snapshot, Func<ProcessSnapshot, string?>? describe = null) => new(
         snapshot.Snapshots.GroupBy(s => s.Pid).ToDictionary(g => g.Key, g => g.First()),
-        snapshot.Snapshots.ToLookup(s => s.ParentPid));
+        snapshot.Snapshots.ToLookup(s => s.ParentPid),
+        describe);
 
     internal bool TryGet(int pid, out ProcessSnapshot snapshot) => _byPid.TryGetValue(pid, out snapshot!);
 
-    /// <summary>进程树渲染：从快照父子链收集全部后代（缩进文本；PID 环/重复引用只渲染一次，子代按 PID 序稳定输出）。</summary>
+    /// <summary>进程说明（#58）：手册/exe 说明/公司名解析结果；快照缺项 → null。</summary>
+    internal string? DescriptionFor(int pid) =>
+        _byPid.TryGetValue(pid, out var p) ? _describe?.Invoke(p) : null;
+
+    /// <summary>进程树渲染：从快照父子链收集全部后代（缩进文本；PID 环/重复引用只渲染一次，子代按 PID 序稳定输出）；
+    /// 每行带说明（#58 用户裁决：说明随行展示；无说明保持“名字 (PID)”原格式）。</summary>
     internal IReadOnlyList<string> BuildLines(int rootPid)
     {
         var lines = new List<string>();
@@ -43,7 +52,10 @@ internal sealed class TreeIndex
                 return; // 防御：环/重复引用只渲染一次，不死循环
             }
 
-            lines.Add($"{new string(' ', depth * 2)}{p.Name} ({p.Pid})");
+            var description = _describe?.Invoke(p);
+            lines.Add(description is null
+                ? $"{new string(' ', depth * 2)}{p.Name} ({p.Pid})"
+                : $"{new string(' ', depth * 2)}{p.Name} ({p.Pid}) {description}");
             foreach (var child in _children[pid].OrderBy(s => s.Pid))
             {
                 Walk(child.Pid, depth + 1);
@@ -82,6 +94,8 @@ public sealed class ClassificationRow : INotifyPropertyChanged
         var orphan = processSnapshot is not null
             && processSnapshot.Signals.OrphanHint is OrphanHint.ParentDead or OrphanHint.PidReused;
         DisplayName = orphan ? ProcessName + DisplayText.OrphanSuffix : ProcessName;
+        DescriptionText = index.DescriptionFor(classification.Pid);
+        PathText = processSnapshot?.ExecutablePath ?? "—";   // 路径不可读：空值口径同白名单面板
         IsChecked = Level == Level.Recommend;
         CanCheck = Level != Level.Protected;
         CanWhitelist = Level is Level.Recommend or Level.Caution;
@@ -106,6 +120,12 @@ public sealed class ClassificationRow : INotifyPropertyChanged
 
     /// <summary>头行显示名：孤儿项带“(父进程已退出)”后缀（R02 空值口径）。</summary>
     public string DisplayName { get; }
+
+    /// <summary>进程说明（#58 每行展示）：手册 &gt; exe 说明 &gt; 公司名；无 → null（模板折叠）。</summary>
+    public string? DescriptionText { get; }
+
+    /// <summary>可执行路径（详情行；不可读 → “—”）。</summary>
+    public string PathText { get; }
 
     /// <summary>勾选默认态在构造内置位（✅ 全勾）；🚫 行恒不勾且禁用。</summary>
     public bool IsChecked { get => _isChecked; set => SetField(ref _isChecked, value); }

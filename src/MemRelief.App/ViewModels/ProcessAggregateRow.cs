@@ -20,6 +20,7 @@ public sealed class ProcessAggregateRow : INotifyPropertyChanged
         ProcessName = processName;
         Rows = rows;
         Level = rows[0].Level;
+        DescriptionText = rows[0].DescriptionText;
         CanCheck = rows.All(r => r.CanCheck);
         CanWhitelist = rows.Any(r => r.CanWhitelist);
         Count = rows.Count;
@@ -48,8 +49,13 @@ public sealed class ProcessAggregateRow : INotifyPropertyChanged
     /// <summary>右键加白可用（任一子项可加白即整组可加；加白按名匹配，语义即全实例排除）。</summary>
     public bool CanWhitelist { get; }
 
-    /// <summary>组头显示：名称 ×N。</summary>
-    public string HeaderText => $"{ProcessName} ×{Count}";
+    /// <summary>组头显示：名称 ×N；有说明时随行展示（#58，取首实例——同名实例说明一致）。</summary>
+    public string HeaderText => DescriptionText is null
+        ? $"{ProcessName} ×{Count}"
+        : $"{ProcessName} ×{Count} {DescriptionText}";
+
+    /// <summary>进程说明（#58）：子行首实例的解析结果；无 → null（模板折叠）。</summary>
+    public string? DescriptionText { get; }
 
     /// <summary>树合计摘要（子项 TreePrivateBytes 求和，口径 #13）。</summary>
     public string TotalTreeSummary { get; }

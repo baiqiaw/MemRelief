@@ -2,12 +2,12 @@
 
 ## 0. 追溯
 
-覆盖需求：R04（白名单）、R06（释放日志）；支撑 R01（四份内置名单资源）。上游：[PRD](../../PRD.md)。
+覆盖需求：R04（白名单）、R06（释放日志）；支撑 R01（四份内置名单资源）、R02（进程说明手册资源）。上游：[PRD](../../PRD.md)。
 
 ## 1. 职责
 
-**管**：白名单文件 CRUD（含元数据）与快照读、释放日志追加与轮转（5MB×3）、损坏自愈（.corrupt 备份/行级跳过）、**四份内置名单**资源加载（残留模式库/常驻应用/安全软件/系统保护名单）、用户数据目录锚定。
-**不管**：判定中如何使用名单（rules）、日志内容语义（releaser 产出）。
+**管**：白名单文件 CRUD（含元数据）与快照读、释放日志追加与轮转（5MB×3）、损坏自愈（.corrupt 备份/行级跳过）、**四份内置名单**资源加载（残留模式库/常驻应用/安全软件/系统保护名单）、**进程说明手册**资源加载（#58，第五份嵌入资源）、用户数据目录锚定。
+**不管**：判定中如何使用名单（rules）、日志内容语义（releaser 产出）、说明的展示取舍（ui）。
 
 ## 2. 领域概念
 
@@ -16,7 +16,7 @@
 
 ## 3. 数据模型
 
-见 [data-contracts.md](../interfaces/data-contracts.md)：`WhitelistEntry`、`WhitelistSnapshot`、`ReleaseLogEntry`（落盘 schema = [PRD F6 JSONL](../../PRD.md)；内存契约→落盘的时区/字段映射归本模块落盘层）、`RulePack`（四数组）。
+见 [data-contracts.md](../interfaces/data-contracts.md)：`WhitelistEntry`、`WhitelistSnapshot`、`ReleaseLogEntry`（落盘 schema = [PRD F6 JSONL](../../PRD.md)；内存契约→落盘的时区/字段映射归本模块落盘层）、`RulePack`（四数组）、`ProcessDescriptionEntry`（#58 说明手册条目）。
 
 ## 4. 行为
 
@@ -24,6 +24,7 @@
 - **白名单**：`Add/Remove/List/Snapshot`；损坏时改名保留 `.corrupt` + 重建空白（[PRD §3.7](../../PRD.md)）。
 - **日志**：`Append(ReleaseReport)`（App 编排在 ReleaseCompleted 后调用，单路径）；达到 5MB 滚动，保留最近 3 副本；写失败**不阻塞释放**，返回失败结果由 ui 呈现"本次结果未留痕"（[PRD §3.7](../../PRD.md)）；行级自愈（跳过损坏行）。
 - **名单加载**：`LoadRulePack()` → 读四份名单资源；**保护类名单（安全软件/系统保护名单）加载失败 → 上报失败并由编排方使 rules 按 system 法-3 保守兜底（相关进程不进✅级），不得按空名单放行**（fail-safe）。
+- **说明手册加载（#58）**：`IDescriptionStore.Load()` → 读 process-descriptions.json；**fail-safe 返回空表不抛（缺失/损坏/读取异常仅说明退化）**——与保护类名单降级刻意分立，禁并入 RulePack（后者任一失败整包 Empty 会误伤判定）；坏条目（空白/null 字段）逐条剔除不击穿整表；取值优先级纯函数 `Resolve`：手册命中（名/路径子串 OrdinalIgnoreCase）> exe FileDescription > CompanyName > 无（[PRD F2](../../PRD.md)）。
 
 ### 4.2 状态机
 
@@ -35,7 +36,7 @@
 
 ## 5. 接口依赖
 
-- 提供：`IWhitelistStore`（含 `Snapshot()`）、`IReleaseLogStore`（含写结果返回）、`IRulePackStore`（含加载失败上报）。消费者：App（编排装载）、ui（白名单管理面板）。
+- 提供：`IWhitelistStore`（含 `Snapshot()`）、`IReleaseLogStore`（含写结果返回）、`IRulePackStore`（含加载失败上报）、`IDescriptionStore`（#58 说明手册 fail-safe 装载）。消费者：App（编排装载）、ui（白名单管理面板/行内说明展示）。
 - 消费：releaser 产出的 `ReleaseReport`（经 App 编排传入）。
 
 ## 6. 约束（模块级）

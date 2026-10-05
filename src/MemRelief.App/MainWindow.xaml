@@ -47,16 +47,34 @@
                                   IsEnabled="{Binding CanCheck}"
                                   VerticalAlignment="Center" />
                         <TextBlock Text="{Binding DisplayName}" Margin="8,0,0,0" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding DescriptionText}" Foreground="{StaticResource Brush.TextSecondary}"
+                                   Margin="10,0,0,0" FontSize="12"
+                                   ToolTip="{Binding DescriptionText}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding DescriptionText}" Value="{x:Null}">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                         <TextBlock Text="{Binding TreeSummary}" Foreground="{StaticResource Brush.TextSecondary}"
                                    Margin="12,0,0,0" FontSize="12" />
                     </StackPanel>
                 </Expander.Header>
-                <!-- 行详情：六要素（主进程/原因/来源/树合计/拉起提示 + 进程树层级） -->
+                <!-- 行详情：六要素（主进程/原因/来源/树合计/拉起提示 + 进程树层级）+ 路径（#58） -->
                 <StackPanel Margin="26,6,4,6">
                     <TextBlock Text="{Binding ReasonText}" TextWrapping="Wrap" />
                     <TextBlock Margin="0,5,0,0">
                         <Run Text="来源：" Foreground="{StaticResource Brush.TextSecondary}" />
                         <Run Text="{Binding SourceText, Mode=OneWay}" />
+                    </TextBlock>
+                    <TextBlock Margin="0,3,0,0" ToolTip="{Binding PathText}">
+                        <Run Text="路径：" Foreground="{StaticResource Brush.TextSecondary}" />
+                        <Run Text="{Binding PathText, Mode=OneWay}" />
                     </TextBlock>
                     <TextBlock Margin="0,3,0,0">
                         <Run Text="{Binding TreeSummary, Mode=OneWay}" Foreground="{StaticResource Brush.TextSecondary}" />
@@ -91,7 +109,8 @@
                                   IsThreeState="True"
                                   VerticalAlignment="Center"
                                   ToolTip="全选/全不选该组全部实例" />
-                        <TextBlock Text="{Binding HeaderText}" FontWeight="Bold" Margin="8,0,0,0" />
+                        <TextBlock Text="{Binding HeaderText}" FontWeight="Bold" Margin="8,0,0,0"
+                                   ToolTip="{Binding DescriptionText}" />
                         <TextBlock Text="{Binding TotalTreeSummary}" Foreground="{StaticResource Brush.TextSecondary}"
                                    Margin="12,0,0,0" FontSize="12" />
                     </StackPanel>
@@ -247,6 +266,9 @@
                                                 <Run Text=") — " />
                                                 <Run Text="{Binding OutcomeText, Mode=OneWay}" FontWeight="Bold" />
                                             </TextBlock>
+                                            <TextBlock Text="{Binding Description}"
+                                                       Foreground="{StaticResource Brush.TextSecondary}"
+                                                       TextWrapping="Wrap" Margin="0,2,0,0" />
                                             <TextBlock Text="{Binding ReasonText}"
                                                        Foreground="{StaticResource Brush.TextSecondary}"
                                                        TextWrapping="Wrap" />
