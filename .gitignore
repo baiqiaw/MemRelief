@@ -18,3 +18,6 @@ msbuild.log
 
 # 实现记录（全局规范：不入库）
 .impl-notes/
+
+# cross-review 评审缓存（PASS 复用，非源码）
+.specs/
