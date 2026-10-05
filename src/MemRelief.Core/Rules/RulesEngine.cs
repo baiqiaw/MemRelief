@@ -25,7 +25,7 @@ public interface IRulesEngine
 /// 法条（rules.md §6）：纯函数——同输入必得同输出，零 I/O 零可变状态；依据完整可追溯；
 /// 白名单完全排除；树合计唯一承载于 Classification.TreePrivateBytes；
 /// 保护性判定所需数据缺失（SignalFailure/名单缺失/null 语义）→ 不进✅级（system 法-3）。
-/// 判定语义唯一事实源 = PRD F1 口径表 #1–#15。
+/// 判定语义唯一事实源 = PRD F1 口径表 #1–#16。
 /// 依据编号：SignalId = 口径表编号；0 = 非口径表依据保留值（兜底/本工具自身/系统保护穷举名/名单不可用/跨用户预标）。
 /// </summary>
 public sealed class RulesEngine : IRulesEngine
@@ -35,6 +35,10 @@ public sealed class RulesEngine : IRulesEngine
 
     // 口径 #7：CPU 差分显著阈值（≤3s 扫描窗口内 >1s CPU 时间）
     private const double CpuDeltaThresholdSeconds = 1.0;
+
+    /// <summary>口径 #16「从未使用」阈值（#59）：自启动累计 CPU &lt;5s ≈ 从未干过活；
+    /// 不可读（null）依据不成立（保守兜底照旧——差分 #7 已承载失败信号）。</summary>
+    private const double NeverUsedCpuThresholdSeconds = 5.0;
 
     public Task<IReadOnlyList<Classification>> Classify(
         ScanResult scan,
@@ -78,9 +82,9 @@ public sealed class RulesEngine : IRulesEngine
                 }
             }
 
-            if (s.ServiceName != null && s.ServiceRestartOnFailure == false)
+            if (s.ServiceName != null && s.ServiceRestartOnFailure == false && !NeverUsed(s))
             {
-                continue; // 服务类不恢复终局🚫（v1.2 裁决），签名状态无关
+                continue; // 服务类不恢复终局🚫（v1.2 裁决），签名状态无关；#59 例外：没用过（累计 CPU<5s）的服务保留进验签面（Classify 按微软签名终判🚫）
             }
 
             candidates.Add(p.Pid);
@@ -276,7 +280,7 @@ public sealed class RulesEngine : IRulesEngine
             level = Promote(level, Level.Protected);
         }
 
-        // 服务（口径 #8；v1.2 裁决：服务类归🚫带原因，"不推荐也说明"）
+        // 服务（口径 #8；v1.2 裁决：服务类归🚫带原因，"不推荐也说明"；#59 例外：第三方没用过服务进✅）
         if (s.ServiceName != null)
         {
             requiresElevation = true; // 预标：服务进程（口径 #8，契约 §1.2）
@@ -288,8 +292,24 @@ public sealed class RulesEngine : IRulesEngine
                     wouldBeRevived = true;
                     break;
                 case false:
-                    bases.Add(new Basis(8, "服务进程——建议经 services.msc 禁用来源后重启"));
-                    level = Promote(level, Level.Protected);
+                    if (NeverUsed(s) && level != Level.Protected)
+                    {
+                        // 口径 #16 服务分支（#59 用户裁决）：没用过的第三方服务直接进✅默认勾选；
+                        // 微软签名/系统目录/验不了的服务已被上方 #9/#10 链打🚫——维持 Basis(8) 口径不挂 16（终局与依据语调一致）；
+                        // 即时 Promote 的作用：使本分支候选进入旁证/常驻/连接降级链评估（这些段以 level==Recommend 为作用条件），
+                        // 与孤儿/残留候选同等路径；compromised 场景的 ⚠️ 可见性由各置位点自身 Promote(Caution) 保证
+                        bases.Add(new Basis(16,
+                            $"从未使用的服务（自启动累计 CPU {s.CpuTotalSeconds:F2}s < 5s；服务名：{s.ServiceName}）——释放后可在 services.msc 手动启动"));
+                        level = Promote(level, Level.Recommend);
+                        hasRecommendBasis = true;
+                        exemptFromSmallTree = true;
+                    }
+                    else
+                    {
+                        bases.Add(new Basis(8, "服务进程——建议经 services.msc 禁用来源后重启"));
+                        level = Promote(level, Level.Protected);
+                    }
+
                     break;
                 case null:
                     bases.Add(new Basis(8, "服务失败恢复配置不可读（保守降级，不进✅级）"));
@@ -356,14 +376,24 @@ public sealed class RulesEngine : IRulesEngine
             exemptFromSmallTree = true;
         }
 
-        // ✅ 无窗口用户级应用（F1 处理逻辑 2d）
+        // ✅ 无窗口用户级应用（F1 处理逻辑 2d；#59 分工：累计 CPU<5s 走「从未使用」并豁免小体量降级，
+        // 其余维持原口径不豁免——两条依据按"是否从未干过活"分工）
         if (!s.IsUwpPackage
             && s.HasVisibleWindow == false
             && s.ServiceName == null
             && s.IsSystemDirectory == false)
         {
-            bases.Add(new Basis(4, "无窗口用户级应用"));
-            hasRecommendBasis = true;
+            if (NeverUsed(s))
+            {
+                bases.Add(new Basis(16, $"从未使用（自启动累计 CPU {s.CpuTotalSeconds:F2}s < 5s）"));
+                hasRecommendBasis = true;
+                exemptFromSmallTree = true;
+            }
+            else
+            {
+                bases.Add(new Basis(4, "无窗口用户级应用"));
+                hasRecommendBasis = true;
+            }
         }
 
         // ✅ 授予：依据命中且未被兜底击穿（Promote 单调性保证 compromised 终态不可为 Recommend）
@@ -472,6 +502,9 @@ public sealed class RulesEngine : IRulesEngine
     /// <summary>冲突消解：多级命中取最保守（Protected > Caution > Recommend；Unmatched 为起点）。</summary>
     private static Level Promote(Level current, Level candidate) =>
         Severity(candidate) > Severity(current) ? candidate : current;
+
+    /// <summary>口径 #16「从未使用」判定：自启动累计 CPU &lt;5s；null（不可读）不成立。</summary>
+    private static bool NeverUsed(SignalSet s) => s.CpuTotalSeconds is < NeverUsedCpuThresholdSeconds;
 
     private static int Severity(Level l) => l switch
     {

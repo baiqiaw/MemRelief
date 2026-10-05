@@ -43,7 +43,8 @@ public record SignalSet(
     string? SignerName = null,
     bool? IsSystemDirectory = null,
     IReadOnlyList<SourceEntry>? SourceEntries = null,
-    bool? ScheduledTaskWouldRevive = null)
+    bool? ScheduledTaskWouldRevive = null,
+    double? CpuTotalSeconds = null)
 {
     public IReadOnlySet<int> SameDirAlivePids { get; init; } =
         SameDirAlivePids == null ? new HashSet<int>() : new HashSet<int>(SameDirAlivePids);

@@ -36,6 +36,7 @@
   | IsSystemDirectory | bool? | #10 |
   | SourceEntries | IReadOnlyList\<SourceEntry{Type: enum{RunKey,Service,ScheduledTask,StartupFolder}, EntryName}\> | #12 |
   | ScheduledTaskWouldRevive | bool?（触发器/动作匹配） | #15 |
+  | CpuTotalSeconds | double?（自启动累计 CPU 秒，kernel+user 合计；RawProcess.CpuStart 同源派生，#59；**无独立失败通道**——差分 #7 同源承载，不可读仅 null=依据不成立） | #16 |
 
   （#2 残留模式库、#5 常驻、#11 安全软件、#13 阈值、#14 白名单为 rules 派生判定，无采集字段。）
   **配对不变量（强制）**：某口径采集失败时，除字段自身 null 语义外，必须同时登记对应 SignalFailure——rules 以 Failures 为保守兜底的事实源，字段默认值（false/0/空集）不构成「已核实」证据。
@@ -90,6 +91,8 @@
 > 2026-10-05（#57 契约修订，语义反转补评审记录）：`Query` 匹配语义两处反转——①名称匹配由全字 `Equals` 改子串 `Contains`（OrdinalIgnoreCase 不变）；②「Pid 与名同时给出时 Pid 优先（名参数忽略）」改「双参取并集」（纯数字输入由 ui 侧双参下发，Pid 精确 ∪ 名称子串）；空名/null 名均不构成名称条件（名与 Pid 均无 → 空集）。同批同步 rules.md §4.1 查询用例与 PRD F2（v1.9）。触发：issue #57（用户缺陷报告——全字匹配致"搜索无效果"）。
 >
 > 2026-10-05（#58 契约新增，兼容性新增字段）：① `ProcessSnapshot` 增 `FileDescription`/`CompanyName`（可空，exe 元数据通道，非保护性——失败仅 null 无 SignalFailure）；② 持久化域新增 `ProcessDescriptionEntry`/`IDescriptionStore`（说明手册 fail-safe 装载，与 RulePack 分立——非保护性数据禁并入整包 Empty 降级）。新增=兼容，无删除/语义反转。同批同步 scanner.md §4.1 采集快照与 PRD F2（v1.10）。触发：issue #58（用户缺陷报告——进程树看不出进程作用）。
+>
+> 2026-10-05（#59 契约修订，判定语义变更补评审记录）：① `SignalSet` 增 `CpuTotalSeconds`（口径 #16，RawProcess.CpuStart 同源派生，兼容新增）；② **判定语义修订（用户裁决推翻 v1.2）**：不自动重启 + 没用过（累计 CPU<5s）+ 非微软签名 + 非系统目录的服务由 🚫 改 ✅（`Classification.Level` 枚举不变，产出分布变化）；无窗口应用命中"从未使用"改走 SignalId=16 依据（原 SignalId=4 场景细分）；小体量降级豁免面扩至 #16。微软/系统目录/验不了/自动重启服务与有窗口应用的既有判定不变。同批同步 rules.md §4.1 与 PRD F1/口径表 #8/#13/#16（v1.11）。触发：issue #59（用户裁决 2026-10-05，开机 50% 占用零推荐）。
 >
 > 2026-09-11（#33 裁决 a）：2026-09-08 ③.s4 段①⑧⑨ 的实现归属由 T-14 改派 **T-27**（新增 issue #34，T-14 AC 未含该三项、WBS 将自动重扫归 T-16，双源冲突经 TL 裁决收口）；① 格式细则裁决仍归 T-16 开工裁决，与 T-27 解析侧对接。
 >

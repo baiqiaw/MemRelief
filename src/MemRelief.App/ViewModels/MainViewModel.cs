@@ -1119,7 +1119,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             AppState.NotScanned => "点击“开始扫描”检查可安全结束的残留进程",
             AppState.Scanning => "正在扫描…",
-            AppState.ResultsShown when Classifications.Count == 0 => "当前无可释放的进程",
+            // #59：零推荐=无任何 ✅/⚠️ 级（PRD §3.7 口径对齐——原条件 Count==0 漏了"仅 🚫"态），配解释文案
+            AppState.ResultsShown when !Classifications.Any(c => c.Level is Level.Recommend or Level.Caution)
+                => DisplayText.ZeroRecommendHint,
             AppState.ResultsShown when LastScanTakenAtUtc.HasValue =>
                 $"快照时间：{LastScanTakenAtUtc.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}",
             AppState.Releasing when _totalTrees > 0 =>

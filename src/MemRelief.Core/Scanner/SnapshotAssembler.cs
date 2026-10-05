@@ -152,6 +152,7 @@ public static class SnapshotAssembler
             IsUwpPackage = isUwp,
             TcpEstablishedCount = tcp,
             CpuDeltaSeconds = cpu,
+            CpuTotalSeconds = row.CpuStart.IsOk ? row.CpuStart.Value : null, // 口径 #16：自启动累计（#59，CpuStart 同源零成本；不可读→null 依据不成立）
             ServiceName = serviceName,
             ServiceRestartOnFailure = restartOnFailure,
             IsSystemDirectory = isSystemDirectory,

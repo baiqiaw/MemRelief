@@ -101,7 +101,11 @@ public sealed class ClassificationRow : INotifyPropertyChanged
         CanWhitelist = Level is Level.Recommend or Level.Caution;
         ReasonText = DisplayText.Reason(classification.Bases);
         SourceText = DisplayText.Source(classification.SourceEntries);
-        ReviveHint = DisplayText.ReviveHint(classification.WouldBeRevived, classification.SourceEntries);
+        // ✅ 级服务项给手动重启提示（#59 口径 #16：服务释放后不自动恢复）；判据=进程自身服务关联
+        // （ServiceName!=null——不依赖来源条目匹配，防非服务进程被路径型 Service 来源误命中）
+        ReviveHint = Level == Level.Recommend && processSnapshot?.Signals.ServiceName != null
+            ? DisplayText.ServiceManualRestartHint
+            : DisplayText.ReviveHint(classification.WouldBeRevived, classification.SourceEntries);
         TreeSummary = $"树合计 {DisplayText.TreeMb(classification.TreePrivateBytes)}";
         TreeLines = index.BuildLines(classification.Pid);
     }

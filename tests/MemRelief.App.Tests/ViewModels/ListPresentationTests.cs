@@ -1,6 +1,7 @@
 using MemRelief.App.Scanning;
 using MemRelief.App.State;
 using MemRelief.App.Tests.TestDoubles;
+using MemRelief.App.Text;
 using MemRelief.App.ViewModels;
 using MemRelief.Core.Contracts;
 using MemRelief.Core.Rules;
@@ -252,7 +253,7 @@ public class ListPresentationTests
 
     // —— 对抗：空扫描结果（零推荐）——
     [Fact]
-    public async Task 空扫描结果_组为空_空态文案_不崩()
+    public async Task 空扫描结果_组为空_零推荐解释文案_不崩()
     {
         var rules = new FakeRules { Result = [] };
         var vm = await ScannedVmAsync(rules: rules);
@@ -260,12 +261,12 @@ public class ListPresentationTests
         Assert.Empty(vm.Groups);
         Assert.Equal(0, vm.WhitelistedExcludedCount);
         Assert.Equal(AppState.ResultsShown, vm.StateMachine.State);
-        Assert.Equal("当前无可释放的进程", vm.StatusText);
+        Assert.Equal(DisplayText.ZeroRecommendHint, vm.StatusText);   // #59：解释文案（PRD §3.7 口径=无任何✅/⚠️级）
     }
 
     // —— 对抗：全 🚫 列表（无 ✅/⚠️）——
     [Fact]
-    public async Task 全不推荐列表_仅保护组_不崩()
+    public async Task 全不推荐列表_仅保护组_零推荐解释文案_不崩()
     {
         var rules = new FakeRules
         {
@@ -278,6 +279,60 @@ public class ListPresentationTests
         Assert.Equal(Level.Protected, group.Level);
         Assert.False(group.IsExpanded);
         Assert.All(group.Rows, r => Assert.False(r.CanCheck));
+        Assert.Equal(DisplayText.ZeroRecommendHint, vm.StatusText);   // #59：全🚫同属零推荐口径
+    }
+
+    // —— #59：✅ 级服务行的手动重启提示（ReviveHint 覆盖分支）——
+    [Fact]
+    public async Task 推荐级服务行_拉起提示为手动重启指引()
+    {
+        // 服务 300 形态改为 ✅：ServiceName 关联 + 无失败恢复重启（对齐 NeverUsedTests.Service 构造）
+        var rules = new FakeRules
+        {
+            Result = [new Classification(700, Level.Recommend, [new Basis(16, "从未使用的服务（自启动累计 CPU 0.50s < 5s；服务名：VendorService）")],
+                30 * Mb, false, [new SourceEntry(SourceType.Service, "VendorService")], false)],
+        };
+        var scanner = new FakeScanner
+        {
+            OnTakeSnapshot = () => Task.FromResult(new ScanResult(
+                NewSnapshot().TakenAtUtc, 1, 5,
+                [new ProcessSnapshot(700, 0, "svc.exe", @"C:\Program Files\Vendor\svc.exe",
+                    new DateTime(2026, 9, 11, 7, 0, 0, DateTimeKind.Utc), 30 * Mb,
+                    Signals: new SignalSet(ServiceName: "VendorService", ServiceRestartOnFailure: false,
+                        IsSystemDirectory: false, SignatureStatus: SignatureStatus.ValidNonMicrosoft,
+                        CpuTotalSeconds: 0.5, CpuDeltaSeconds: 0.0, HasVisibleWindow: false))],
+                [])),
+        };
+        var vm = await ScannedVmAsync(scanner: scanner, rules: rules);
+
+        var row = vm.Groups.SelectMany(g => g.Rows).Single(r => r.Pid == 700);
+        Assert.Equal(DisplayText.ServiceManualRestartHint, row.ReviveHint);
+        Assert.True(row.IsChecked);   // ✅ 默认勾选（既有机制）
+    }
+
+    [Fact]
+    public async Task 推荐级非服务行_拉起提示不走服务分支()
+    {
+        // 路径恰注册 Service 来源的非服务进程（ServiceName=null）：不误显示服务手动重启提示
+        var rules = new FakeRules
+        {
+            Result = [new Classification(800, Level.Recommend, [new Basis(2, "残留模式命中：updater")],
+                60 * Mb, false, [new SourceEntry(SourceType.Service, "VendorUpdater")], false)],
+        };
+        var scanner = new FakeScanner
+        {
+            OnTakeSnapshot = () => Task.FromResult(new ScanResult(
+                NewSnapshot().TakenAtUtc, 1, 5,
+                [new ProcessSnapshot(800, 0, "updater.exe", @"C:\Program Files\Vendor\updater.exe",
+                    new DateTime(2026, 9, 11, 7, 0, 0, DateTimeKind.Utc), 60 * Mb,
+                    Signals: new SignalSet(IsSystemDirectory: false,
+                        SignatureStatus: SignatureStatus.ValidNonMicrosoft, CpuTotalSeconds: 0.5))],
+                [])),
+        };
+        var vm = await ScannedVmAsync(scanner: scanner, rules: rules);
+
+        var row = vm.Groups.SelectMany(g => g.Rows).Single(r => r.Pid == 800);
+        Assert.Equal("杀掉后不会被拉起", row.ReviveHint);   // WouldBeRevived=false 三态，非服务提示
     }
 
     // —— 对抗：孤儿无后代（树仅自身）不崩；父子链跨级（孙代）全展开 ——

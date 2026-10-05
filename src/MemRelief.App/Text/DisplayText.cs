@@ -44,6 +44,12 @@ internal static class DisplayText
             null => "是否会被拉起：未评估",
         };
 
+    /// <summary>✅ 级服务项的手动重启提示（#59 口径 #16 服务分支：第三方没用过服务进推荐，释放后不自动恢复）。</summary>
+    public const string ServiceManualRestartHint = "服务释放后不会自动恢复，需要时可在 services.msc 手动启动";
+
+    /// <summary>零推荐解释文案（#59，PRD §3.7 口径=无任何 ✅/⚠️ 级：零推荐是正常空态非错误，解释"为什么"）。</summary>
+    public const string ZeroRecommendHint = "未发现可释放的垃圾程序；当前内存主要是系统与后台服务在用（可展开 🚫 组查看）";
+
     private static string DisableHint(IReadOnlyList<SourceEntry> entries)
     {
         if (entries.Any(e => e.Type == SourceType.Service))
