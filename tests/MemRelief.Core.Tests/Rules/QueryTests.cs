@@ -39,12 +39,45 @@ public class QueryTests
     }
 
     [Fact]
-    public async Task Pid优先于名()
+    public async Task Pid与名并集_同时给出时各自命中()
     {
+        // #57 契约变更：原"Pid 优先于名"改并集——纯数字输入按 Pid ∪ 名称子串同查
         var (scan, all) = await ScanAsync(Snap.Clean(1, name: "app.exe"), Snap.Clean(2, name: "other.exe"));
-        var hit = Assert.Single(new RulesEngine().Query(scan, all, "other.exe", 1));
+        var hits = new RulesEngine().Query(scan, all, "other.exe", 1).OrderBy(h => h.Pid).ToArray();
+        Assert.Equal(new[] { 1, 2 }, hits.Select(h => h.Pid));
+    }
+
+    [Fact]
+    public async Task 名称子串模糊命中()
+    {
+        var (scan, all) = await ScanAsync(
+            Snap.Clean(1, name: "chrome.exe"), Snap.Clean(2, name: "other.exe"), Snap.Clean(3, name: "googlechrometool.exe"));
+        var hits = new RulesEngine().Query(scan, all, "chrome", null).OrderBy(h => h.Pid).ToArray();
+        Assert.Equal(new[] { 1, 3 }, hits.Select(h => h.Pid));
+    }
+
+    [Fact]
+    public async Task 子串大小写不敏感()
+    {
+        var (scan, all) = await ScanAsync(Snap.Clean(1, name: "chrome.exe"));
+        var hit = Assert.Single(new RulesEngine().Query(scan, all, "CHROME", null));
         Assert.Equal(1, hit.Pid);
-        Assert.Equal("app.exe", hit.Name);
+    }
+
+    [Fact]
+    public async Task 数字串作为名称子串_命中名称含该数字的进程()
+    {
+        // #57 AC3 直接用例：纯数字输入时名称含该数字的进程也命中（VM 双参下发的名称分支）
+        var (scan, all) = await ScanAsync(Snap.Clean(1, name: "app4321.exe"), Snap.Clean(2, name: "other.exe"));
+        var hit = Assert.Single(new RulesEngine().Query(scan, all, "4321", null));
+        Assert.Equal(1, hit.Pid);
+    }
+
+    [Fact]
+    public async Task 空名视为无条件_不命中()
+    {
+        var (scan, all) = await ScanAsync(Snap.Clean(1, name: "app.exe"));
+        Assert.Empty(new RulesEngine().Query(scan, all, "", null));
     }
 
     [Fact]

@@ -92,7 +92,9 @@ public sealed class RulesEngine : IRulesEngine
     /// <summary>
     /// 全量判定查询（R02 搜索框）：消费编排方持有的 Classify 全量输出定位目标，不重算判定
     /// （判定单一事实源=Classify，搜索结果与列表展示零漂移）。
-    /// Pid 与名同时给出时 Pid 优先；同名多进程全部返回；名称匹配 OrdinalIgnoreCase。
+    /// 名称匹配为 OrdinalIgnoreCase 子串（#57 模糊查询）；Pid 与名同时给出时取并集（纯数字输入
+    /// 由 VM 侧双参下发——Pid 精确 ∪ 名称子串）；同名多进程全部返回；空名/null 名均不构成名称条件，
+    /// 名与 Pid 均无 → 空集。
     /// Outcome 复用 Level：Unmatched=未命中规则、Whitelisted=白名单排除。
     /// </summary>
     public IReadOnlyList<QueryResult> Query(
@@ -102,12 +104,12 @@ public sealed class RulesEngine : IRulesEngine
         int? pid)
     {
         var byPid = classifications.ToDictionary(c => c.Pid); // Pid 唯一是 scanner 契约（data-contracts §1.1），违约输入快速失败
+        var needle = name is { Length: > 0 } ? name : null;
         var results = new List<QueryResult>();
         foreach (var p in scan.Snapshots)
         {
-            var hit = pid.HasValue
-                ? p.Pid == pid.Value
-                : name != null && string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase);
+            var hit = (pid.HasValue && p.Pid == pid.Value)
+                || (needle != null && p.Name.Contains(needle, StringComparison.OrdinalIgnoreCase));
             if (!hit || !byPid.TryGetValue(p.Pid, out var c))
             {
                 continue;

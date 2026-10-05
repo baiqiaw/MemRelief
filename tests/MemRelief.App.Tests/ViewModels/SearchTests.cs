@@ -88,7 +88,7 @@ public class SearchTests
     }
 
     [Fact]
-    public async Task 纯数字输入_按PID查询_其余按名称查询()
+    public async Task 纯数字输入_Pid与名并集查询_其余按名称子串查询()
     {
         var (vm, _, rules, _) = ListPresentationTests.NewVm();
         await vm.StartScanAsync();
@@ -96,7 +96,7 @@ public class SearchTests
 
         vm.SearchText = "4321";
         await vm.SearchAsync();
-        Assert.Equal((null, 4321), (rules.QueryCalls[^1].Name, rules.QueryCalls[^1].Pid));
+        Assert.Equal(("4321", 4321), (rules.QueryCalls[^1].Name, rules.QueryCalls[^1].Pid));
 
         vm.SearchText = "b.exe";
         await vm.SearchAsync();
@@ -155,7 +155,8 @@ public class SearchTests
         var (vm, _, rules, _) = ListPresentationTests.NewVm();
         await vm.StartScanAsync();
 
-        // 查询 1 挂起（线程池线程内等放行）→ 查询 2 即时完成 → 放行查询 1：其响应必须被序号守卫丢弃
+        // 查询 1 挂起（线程池线程内等放行）→ 查询 2 即时完成 → 放行查询 1：其响应必须被序号守卫丢弃。
+        // 判别性：查询 1 返回 1 行——守卫失效时旧响应会覆写为"匹配 1 项"，断言转红（#57 评审修复）
         var firstGate = new TaskCompletionSource();
         var gateInstalled = false;
         rules.OnQuery = (_, _, _, _) =>
@@ -164,6 +165,7 @@ public class SearchTests
             {
                 gateInstalled = true;
                 firstGate.Task.Wait();   // 阻塞查询线程模拟慢查询（放行后旧响应走序号守卫丢弃）
+                return [new QueryResult(700, "first.exe", Level.Recommend, [])];
             }
 
             return [];                   // 第二次查询即时无结果

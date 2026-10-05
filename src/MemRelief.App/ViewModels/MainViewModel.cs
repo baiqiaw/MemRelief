@@ -556,7 +556,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     /// <summary>
     /// 全量判定查询（R02 搜索框）：Query 消费最近一次 Classify 全量输出（判定单一事实源，不重算）；
-    /// 纯数字输入按 PID 查、其余按名查（与 Core Query 双参语义对齐）。空输入/未扫描给引导不查询；
+    /// 名称按子串模糊匹配，纯数字输入按 Pid ∪ 名称双参下发（#57——输 chrome 可查 chrome.exe、
+    /// 输数字同名进程也可命中）。空输入/未扫描给引导不查询；
     /// 序号守卫丢弃过期响应（连续查询后发起者胜，防旧结果覆盖新输入），异常收口到状态行。
     /// </summary>
     public async Task SearchAsync()
@@ -573,7 +574,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             var pid = int.TryParse(text, out var parsedPid) ? parsedPid : (int?)null;
-            var name = pid.HasValue ? null : text;
+            var name = text; // 模糊查询（#57）：数字输入也并集按名查，Core Query 双参取并集
             var snapshot = _snapshot;
             var classifications = _classifications;
             var results = await Task.Run(() => _rules.Query(snapshot, classifications, name, pid))
