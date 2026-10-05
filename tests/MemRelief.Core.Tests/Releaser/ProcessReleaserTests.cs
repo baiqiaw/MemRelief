@@ -577,4 +577,36 @@ public class ProcessReleaserTests
         Assert.Equal(1, plan.RootPid);
         Assert.Equal(new[] { 1, 2 }, plan.Nodes.Select(n => n.Snapshot.Pid).ToArray());
     }
+
+    // —— #40 承载回归：等待段异步化（Thread.Sleep → Task.Delay 轮询）——
+
+    [Fact]
+    public async Task Execute_两百树挂满等待_整批时长不随树数串行放大()
+    {
+        // 200 树全走优雅路径且挂满 GraceWaitMs（有窗口、永不退出、杀必成）——
+        // Thread.Sleep 轮询承载下等待段占住线程池线程，树数超线程池承载上限后按批排队
+        //（poolprobe 实测模型 ~120ms/树串行化，200 树 >4s）；Task.Delay 让出承载下
+        // 整批 ≈ GraceWaitMs + 尾开销。断言线取 4 倍分离度中点，防 CI 抖动误报。
+        var opener = new FakeProcessOpener();
+        var plans = new List<TreePlan>();
+        for (var pid = 1; pid <= 200; pid++)
+        {
+            opener.AddLive(pid, windows: new nint[] { 1 });
+            plans.Add(new TreePlan(pid, new[] { Node(pid) }, Array.Empty<SkippedNode>(), 0));
+        }
+
+        var releaser = new ProcessReleaser(new TreePlanner(), opener)
+        {
+            GraceWaitMs = 500,
+            CurrentUserName = "tester",
+        };
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var report = await releaser.Execute(Request(), plans);
+        sw.Stop();
+
+        Assert.Equal(200, report.Items.Count(i => i.Outcome == ReleaseItemOutcome.ForceKilled));
+        Assert.True(sw.ElapsedMilliseconds < 2000,
+            $"整批耗时 {sw.ElapsedMilliseconds}ms——等待段仍在线程池上排队（承载回归，issue #40）");
+    }
 }

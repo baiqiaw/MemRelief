@@ -9,6 +9,9 @@ using MemRelief.Core.Storage;
 // 用法: dotnet MemRelief.Bench.dll [--top N] [--repeat K]
 //   --top N：谨慎/受保护级明细行数（默认 20）
 //   --repeat K：同进程连扫轮数（默认 1，上限 10）；轮 1 冷缓存，轮 2 起缓存热（与 App 常驻复扫同构）
+// 承载实验（issue #40）：dotnet MemRelief.Bench.dll --poolprobe [--trees N[,N...]] [--mode sync|async|both]
+//   复刻 ProcessReleaser 多树等待段两承载形态（Thread.Sleep vs Task.Delay 轮询），测整批耗时随树数伸缩；
+//   采证口径 = 逐规模独立进程（防线程池膨胀的顺序污染）。
 // 只做驱动与输出；推荐准确性人工复核方法见脚本输出第 [3]/[4] 段与 scripts/baseline-result.txt。
 // 退出码：0=测量完成且计时可信；2=测量完成但存在计时异常（报告文本同步标记）；1=扫描链异常（原因走 stderr）。
 Console.OutputEncoding = Encoding.UTF8;
@@ -28,6 +31,21 @@ catch (Exception ex)
 
 static async Task<int> RunAsync(string[] args)
 {
+    // 承载实验分支（issue #40）：不触扫描链与名单装载，独立计时输出
+    if (args.Contains("--poolprobe", StringComparer.OrdinalIgnoreCase))
+    {
+        // 采样时点=实验开始（对齐下方扫描链路径先例：完成后取值会混入实验耗时，多规模可达分钟级失真）
+        var startedAtLocal = DateTime.Now;
+        const int ProbeWaitMs = 3000;
+        const int ProbePollMs = 100;
+        var trees = PoolProbeCli.ParseTrees(args);
+        var mode = PoolProbeCli.ParseMode(args);
+        var records = await new PoolProbe().RunAsync(trees, ProbeWaitMs, ProbePollMs, mode);
+        var env = new BenchEnvironment(Environment.MachineName, startedAtLocal);
+        Console.Write(PoolProbeReport.Format(records, env, ProbeWaitMs, ProbePollMs));
+        return 0;
+    }
+
     var topN = BenchCli.ParseTop(args);
     var repeat = BenchCli.ParseRepeat(args);
 

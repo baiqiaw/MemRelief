@@ -211,7 +211,11 @@ public sealed class ProcessReleaser : IReleaser
 
     // —— 单树状态机：Pending → Closing → Waiting(3s) → Killing → Done；Pending → Killing 直达（整树无窗口）；无实际动作 → Skipped ——
 
-    private List<ReleaseItemResult> RunTree(TreePlan plan, Dictionary<int, TreePlan> nodeOwner)
+    /// <summary>
+    /// 等待段承载（#40 裁决）：Task.Delay 轮询让出线程池线程——Thread.Sleep 承载下数百树并发
+    /// 会占住线程池至注入上限后按批排队（实测 300 树 36.7s 破整批 ≤30s 预算），异步轮询全规模平坦（~3s）。
+    /// </summary>
+    private async Task<List<ReleaseItemResult>> RunTree(TreePlan plan, Dictionary<int, TreePlan> nodeOwner)
     {
         var items = new List<ReleaseItemResult>();
         // 意料外异常兜底域：登记在途句柄与所属快照，终态化时移除；异常时统一回收并逐 pid 补齐结果
@@ -367,7 +371,7 @@ public sealed class ProcessReleaser : IReleaser
                 {
                     break;
                 }
-                Thread.Sleep((int)Math.Min(PollIntervalMs, remaining));
+                await Task.Delay((int)Math.Min(PollIntervalMs, remaining)).ConfigureAwait(false);
             }
 
             // —— Killing：3s 超时幸存者转强杀；无幸存者直达 Done ——
