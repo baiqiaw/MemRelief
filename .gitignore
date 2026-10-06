@@ -21,3 +21,6 @@ msbuild.log
 
 # cross-review 评审缓存（PASS 复用，非源码）
 .specs/
+
+# gate 全量转录日志（#62）
+logs/
