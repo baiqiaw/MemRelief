@@ -235,6 +235,188 @@ public class TestProcsIntegrationTests
         }
     }
 
+    // 回归（issue #61 带值参数值为 flag 名）：--out-pid --cpu 原被当作合法值放行 → 静默创建名为
+    // "--cpu" 的文件假成功（码 0）；严格校验按「值以 -- 开头视为缺值」参数错误退出码 1，不产生 child。
+    // finally 兜底：守卫若被回归删除，parent 将码 0 退出且在 CWD 创建名为 "--cpu" 的脏文件，此处一并回收
+    [Fact]
+    public void 孤儿构造器_真机_parent带值参数值为flag名按参数错误退出()
+    {
+        var exe = ExePath();
+        Assert.True(File.Exists(exe), $"构造器未构建：{exe}（gate.ps1 全 sln 构建后应存在）");
+
+        var strayFile = Path.Combine(Directory.GetCurrentDirectory(), "--cpu");
+        using var parent = Process.Start(new ProcessStartInfo(exe)
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            ArgumentList = { "parent", "--mem-mb", "0", "--out-pid", "--cpu" },
+        });
+        try
+        {
+            Assert.True(parent!.WaitForExit(15_000), "parent 15s 内未退出（--out-pid 值为 flag 名应立即参数错误退出）");
+            Assert.Equal(1, parent.ExitCode);
+        }
+        finally
+        {
+            // 兜底（cross-review #61）：守卫若被回归删除，parent 码 0 退出且 child pid 恰写在 "--cpu" 脏文件
+            // 首行——文件是唯一回收凭据，先读 pid 击杀挂起 child 再删文件，防残留击穿首测同目录断言
+            if (File.Exists(strayFile))
+            {
+                if (int.TryParse(File.ReadLines(strayFile).FirstOrDefault(), out var leakedPid))
+                {
+                    TryKillById(leakedPid);
+                }
+                File.Delete(strayFile);
+            }
+        }
+    }
+
+    // child 侧同症状（issue #61）：--ready-event --window 原取值 "--window" → OpenExisting 崩溃，
+    // 退出码落契约外；严格校验按缺值处理参数错误退出码 1
+    [Fact]
+    public void 孤儿构造器_真机_child带值参数值为flag名按参数错误退出()
+    {
+        var exe = ExePath();
+        Assert.True(File.Exists(exe), $"构造器未构建：{exe}（gate.ps1 全 sln 构建后应存在）");
+
+        Process? child = null;
+        try
+        {
+            child = Process.Start(new ProcessStartInfo(exe)
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                ArgumentList = { "child", "--mem-mb", "0", "--ready-event", "--window" },
+            });
+            Assert.True(child!.WaitForExit(10_000), "child 10s 内未退出（--ready-event 值为 flag 名应立即参数错误退出）");
+            Assert.Equal(1, child.ExitCode);
+        }
+        finally
+        {
+            if (child is not null)
+            {
+                TryKillById(child.Id);
+            }
+        }
+    }
+
+    // 回归（issue #61 未知参数严格拒绝，会话裁决）：拼错参数名 / 裸位置参数原被静默忽略按未提供
+    // 处理 → 码 0 假成功；严格校验所有 token 须可归类（已知 flag / 已知带值参数的值），否则码 1。
+    // 既有六用例即回归面：负例值经 ArgsAreValid 放行后仍由既有守卫拦为码 1（期望不变），正例形态误拦即红
+    [Theory]
+    [InlineData("parent", "--out-pd")]   // 拼错带值参数名（--out-pid）
+    [InlineData("child", "--mem")]       // 拼错带值参数名（--mem-mb）
+    [InlineData("parent", "foo")]        // 裸位置参数（非任何带值参数的值）
+    public void 孤儿构造器_真机_未识别参数严格按参数错误退出(string mode, string arg)
+    {
+        var exe = ExePath();
+        Assert.True(File.Exists(exe), $"构造器未构建：{exe}（gate.ps1 全 sln 构建后应存在）");
+
+        // parent 形态追加 --out-pid 临时文件：守卫若被回归删除，派生 child 的 pid 可回收
+        //（--out-pd 未识别仍按码 1 断言，覆盖不减损；固定行为世界文件不产生，幂等无副作用）
+        var outPidFile = mode == "parent"
+            ? Path.Combine(Path.GetTempPath(), $"mrtproc-{Guid.NewGuid():N}.txt")
+            : null;
+        var psi = new ProcessStartInfo(exe) { CreateNoWindow = true, UseShellExecute = false };
+        psi.ArgumentList.Add(mode);
+        psi.ArgumentList.Add(arg);
+        if (outPidFile is not null)
+        {
+            psi.ArgumentList.Add("--out-pid");
+            psi.ArgumentList.Add(outPidFile);
+        }
+        using var proc = Process.Start(psi);
+        try
+        {
+            Assert.True(proc!.WaitForExit(15_000), $"{mode} {arg} 15s 内未退出（未识别参数应立即参数错误退出）");
+            Assert.Equal(1, proc.ExitCode);
+        }
+        finally
+        {
+            // 兜底（同 #44/#55 负例）：守卫若被回归删除，child 形态落挂起、parent 形态码 0 退出且
+            // child pid 已写入 outPidFile——先杀本进程，再按 pid 文件回收派生 child 并删文件，防残留
+            // 击穿首测同目录断言
+            TryKillById(proc.Id);
+            if (outPidFile is not null)
+            {
+                if (File.Exists(outPidFile)
+                    && int.TryParse(File.ReadLines(outPidFile).FirstOrDefault(), out var leakedPid))
+                {
+                    TryKillById(leakedPid);
+                }
+                if (File.Exists(outPidFile))
+                {
+                    File.Delete(outPidFile);
+                }
+            }
+        }
+    }
+
+    // 正例锚定（cross-review #61）：参数名大小写不敏感与既有 Has/GetInt 同口径——
+    // OrdinalIgnoreCase 若被回归改为 Ordinal，大写形态被误拒码 1、就绪事件永不置位即红
+    [Fact]
+    public void 孤儿构造器_真机_参数名大写形态放行()
+    {
+        var exe = ExePath();
+        Assert.True(File.Exists(exe), $"构造器未构建：{exe}（gate.ps1 全 sln 构建后应存在）");
+
+        var readyName = $"MemRelief.TestProcs.Ready.{Guid.NewGuid():N}";
+        using var ready = new EventWaitHandle(false, EventResetMode.ManualReset, readyName);
+        Process? child = null;
+        try
+        {
+            child = Process.Start(new ProcessStartInfo(exe)
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                ArgumentList = { "child", "--MEM-MB", "0", "--READY-EVENT", readyName },
+            });
+
+            Assert.True(ready.WaitOne(10_000), "child 10s 内未就绪（大写参数名被误拒=校验大小写口径回归）");
+            if (child!.HasExited)
+            {
+                Assert.Fail($"child 在就绪信号后提前退出（退出码 {child.ExitCode}）");
+            }
+        }
+        finally
+        {
+            if (child is not null)
+            {
+                TryKillById(child.Id);
+            }
+        }
+    }
+
+    // 回归（cross-review #61 实测发现）：重复带值参数校验逃逸——--mem-mb 0 --mem-mb abc 中
+    // 第二次出现的非法值逃逸校验（单独传 abc 按码 1 拒绝，垫一个合法值后码 0 放行）。
+    // ArgsAreValid 拒绝同名带值参数二次出现（flag 重复幂等无害不动）
+    [Fact]
+    public void 孤儿构造器_真机_重复带值参数按参数错误退出()
+    {
+        var exe = ExePath();
+        Assert.True(File.Exists(exe), $"构造器未构建：{exe}（gate.ps1 全 sln 构建后应存在）");
+
+        Process? child = null;
+        try
+        {
+            child = Process.Start(new ProcessStartInfo(exe)
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                ArgumentList = { "child", "--mem-mb", "0", "--mem-mb", "abc" },
+            });
+            Assert.True(child!.WaitForExit(10_000), "child 10s 内未退出（重复带值参数应立即参数错误退出）");
+            Assert.Equal(1, child.ExitCode);
+        }
+        finally
+        {
+            if (child is not null)
+            {
+                TryKillById(child.Id);
+            }
+        }
+    }
+
     private static void TryKillById(int pid)
     {
         try

@@ -27,13 +27,19 @@ static int Usage()
               挂起等待被外部终止；--mem-mb 0 = 仅挂起（同目录存活场景由活父直接启动本形态）。
               --window：顶层可见窗口+消息循环（默认 WM_CLOSE 关闭退出；--ignore-close 吞并关闭信号）。
 
-        退出码：0 成功；2 就绪超时；1 参数错误（WinExe 无控制台，错误详情不可见，用法见 README）。
+        退出码：0 成功；2 就绪超时；1 参数错误（未识别/缺值/重复/空串值/值为 flag 名；WinExe 无控制台，错误详情不可见，用法见 README）；其他非零 = 运行时异常崩溃。
         """);
     return 1;
 }
 
 static int RunChild(string[] args)
 {
+    // 严格校验前置于一切解析与资源构造（issue #61）：未识别 token / 带值参数值为 flag 名 / 重复带值参数 → 码 1
+    if (!ArgsAreValid(args, ArgSets.Flags, ArgSets.ChildValued))
+    {
+        return 1;
+    }
+
     var memMb = GetInt(args, "--mem-mb", 60);
     var spinCpu = Has(args, "--cpu");
     var established = Has(args, "--established");
@@ -47,7 +53,7 @@ static int RunChild(string[] args)
         return 1;   // 参数越界或缺值/非数值（WinExe 无控制台，退出码 1=参数错误；用法见 README）
     }
 
-    // 提供但缺值/空串（如位于参数末尾）≠ 未提供：按参数错误退出（issue #55，与 --mem-mb 同口径）
+    // 空串值 ≠ 未提供：按参数错误退出（issue #55，与 --mem-mb 同口径；缺值/值为 flag 名已由 ArgsAreValid 前置拦截）
     if (Has(args, "--ready-event") && GetStr(args, "--ready-event") is not { Length: > 0 })
     {
         return 1;
@@ -98,6 +104,12 @@ static int RunChild(string[] args)
 
 static int RunParent(string[] args)
 {
+    // 同 child 侧严格校验（issue #61）：前置于 child 启动，参数错误不产生 child
+    if (!ArgsAreValid(args, ArgSets.Flags, ArgSets.ParentValued))
+    {
+        return 1;
+    }
+
     var exe = Environment.ProcessPath;
     if (exe is null)
     {
@@ -116,7 +128,7 @@ static int RunParent(string[] args)
         return 1;
     }
 
-    // 同口径（issue #55）：--out-pid 提供但缺值/空串按参数错误退出，前置于 child 启动
+    // 空串守卫（issue #55）：--out-pid 空串按参数错误退出，前置于 child 启动（缺值已由 ArgsAreValid 前置拦截）
     if (Has(args, "--out-pid") && GetStr(args, "--out-pid") is not { Length: > 0 })
     {
         return 1;
@@ -195,6 +207,49 @@ static void TryKill(Process process)
 
 static bool Has(string[] args, string name) => args.Contains(name, StringComparer.OrdinalIgnoreCase);
 
+/// <summary>严格参数校验（issue #61）：所有 token 须可归类——已知 flag，或已知带值参数的值
+/// （值另不得以 -- 开头：以 -- 开头视为缺值，防 flag 名作值被静默放行，如 --out-pid --cpu 假成功
+/// 创建名为 "--cpu" 的文件）；未识别 token（拼错参数名、裸位置参数）一律参数错误，不再静默忽略；
+/// 同名带值参数二次出现即拒绝（重复值逃逸校验：--mem-mb 0 --mem-mb abc 中 abc 放行即假成功，
+/// cross-review 实测），flag 重复幂等无害不拒（与 #44/#55 同族：错误配置大声失败；
+/// 现仓调用方均程序化合法传参，无误拦面）。
+/// 大小写不敏感（与 Has 同口径）；空串值由此放行、由各参数既有校验拦截
+/// （#55 空串守卫 / #44 非数值守卫），口径不变。</summary>
+static bool ArgsAreValid(string[] args, string[] flags, string[] valued)
+{
+    var seenValued = new List<string>(valued.Length);
+    for (var i = 0; i < args.Length; i++)
+    {
+        var token = args[i];
+        if (token.StartsWith("--", StringComparison.Ordinal))
+        {
+            if (Array.Exists(valued, v => token.Equals(v, StringComparison.OrdinalIgnoreCase)))
+            {
+                if (seenValued.Contains(token, StringComparer.OrdinalIgnoreCase))
+                {
+                    return false;   // 同名带值参数二次出现：后值逃逸校验（如 --mem-mb 0 --mem-mb abc）
+                }
+                // 带值参数：下一 token 须存在且不以 -- 开头（否则 = 缺值或值为另一 flag 名）
+                if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
+                {
+                    return false;
+                }
+                seenValued.Add(token);
+                i++;   // 值已归类，跳过
+            }
+            else if (!Array.Exists(flags, f => token.Equals(f, StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;   // 未识别参数（拼错参数名）
+            }
+        }
+        else
+        {
+            return false;   // 裸 token：非任何带值参数的值（值在上分支随 i++ 消费）
+        }
+    }
+    return true;
+}
+
 /// <summary>--mem-mb 合法域 [0,1024]；null=提供但缺值/非数值/溢出（issue #44）。唯一校验落点，child/parent 共用。</summary>
 static bool IsMemMbInvalid(int? memMb) => memMb is null or < 0 or > 1024;
 
@@ -210,11 +265,20 @@ static int? GetInt(string[] args, string name, int fallback)
         : null;             // 提供了但缺值/非数值/溢出 → null（调用方按参数错误退出，issue #44）
 }
 
-/// <summary>取带值参数值；null = 未提供或提供但缺值，空串原样返回——调用方守卫按 is not { Length: > 0 } 同拦缺值/空串（issue #55）。</summary>
+/// <summary>取带值参数值；null = 未提供或提供但缺值（缺值形态已由 ArgsAreValid 前置拦截，此为防御纵深），空串原样返回——调用方守卫按 is not { Length: > 0 } 拦空串（issue #55）。</summary>
 static string? GetStr(string[] args, string name)
 {
     var index = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase));
     return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
+}
+
+/// <summary>参数形态集（issue #61 严格校验，与 Usage/README 用法行同步维护）：
+/// flags 两模式共用；带值参数按模式互斥（--ready-event 仅 child、--out-pid 仅 parent）。</summary>
+internal static class ArgSets
+{
+    public static readonly string[] Flags = ["--cpu", "--established", "--window", "--ignore-close"];
+    public static readonly string[] ChildValued = ["--mem-mb", "--ready-event"];
+    public static readonly string[] ParentValued = ["--mem-mb", "--out-pid"];
 }
 
 /// <summary>构造资源驻留点：静态引用防 GC 回收（内存驻留/TCP 连接生命周期与进程同寿）。</summary>
