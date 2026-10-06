@@ -59,6 +59,15 @@ public class ReleaseFlowTests
         Assert.Equal(AppState.Releasing, vm.StateMachine.State);
     }
 
+    /// <summary>铺态屏障（#56）：等待 Execute 已进入（FakeReleaser 入口即记 ExecutedRequests）。
+    /// Execute 只会在启动段完成（状态转换→进度分母与清终态集→取消标记重置→Task.Run 派发，
+    /// 见 MainViewModel.ReleaseAsync）之后被调，故此条件强于「状态==Releasing」——封死取消意图
+    /// 被启动段重置抹除的负载交错窗口。前提：用例内仅一次有效释放（ExecutedRequests 单调增，
+    /// 二次有效释放复用本屏障会被首次计数立即满足）。</summary>
+    private static Task ReleaseStartedAsync(FakeReleaser releaser) =>
+        WaitUntil.ForAsync(() => releaser.ExecutedRequests.Count > 0,
+            throwOnTimeout: true, label: "释放启动段（Execute 已进入）");
+
     private static IReadOnlyList<ClassificationRow> AllRows(MainViewModel vm) =>
         vm.Groups.SelectMany(g => g.Rows).ToList();
 
@@ -195,10 +204,11 @@ public class ReleaseFlowTests
             new TreePlan(200, [new TreeNode(Proc(200, "b.exe", 1))], [], 1),
             new TreePlan(300, [new TreeNode(Proc(300, "c.exe", 1))], [], 1),
         ];
+        releaser.PlanDelayMs = 100; // #56 假负载：启动链挂起下靠屏障铺态，不依赖 await 快速路径侥幸
         var gate = new TaskCompletionSource<ReleaseReport>(TaskCreationOptions.RunContinuationsAsynchronously);
         releaser.OnExecute = (_, _) => gate.Task;
         var releaseTask = vm.ReleaseAsync();
-        await WaitUntil.ForAsync(() => vm.StateMachine.State == AppState.Releasing); // 编排链异步推进，铺态到位再驱动进度
+        await ReleaseStartedAsync(releaser); // #56 屏障铺态：启动段完成（非仅状态转换）再驱动进度
 
         releaser.RaiseTreeProgress(100, TreeState.Done);
         releaser.RaiseTreeProgress(200, TreeState.Skipped);
@@ -427,9 +437,11 @@ public class ReleaseFlowTests
         rules.Result = [Classify(100, 60_000_000)];
         await ScanAsync(vm);
         releaser.PlanResult = [new TreePlan(100, [new TreeNode(Proc(100, "a.exe", 60_000_000))], [], 60_000_000)];
+        releaser.PlanDelayMs = 100; // #56 假负载：启动链必然挂起，裸 PrepareClose 将跑在转换前
         var gate = new TaskCompletionSource<ReleaseReport>(TaskCreationOptions.RunContinuationsAsynchronously);
         releaser.OnExecute = (_, _) => gate.Task;
         var releaseTask = vm.ReleaseAsync();
+        await ReleaseStartedAsync(releaser); // #56 屏障铺态：启动段完成后 PrepareClose 才落在 Releasing 内
 
         Assert.False(vm.PrepareClose()); // 触发取消
         var settle = vm.SettleReleaseAsync();
@@ -553,10 +565,11 @@ public class ReleaseFlowTests
             new TreePlan(100, [new TreeNode(Proc(100, "a.exe", 60_000_000))], [], 60_000_000),
             new TreePlan(200, [new TreeNode(Proc(200, "b.exe", 30_000_000))], [], 30_000_000),
         ];
+        releaser.PlanDelayMs = 100; // #56 假负载：历史抹除窗（转换→重置之间）不可摆拍，靠屏障封死后确定性走通挂起路径
         var gate = new TaskCompletionSource<ReleaseReport>(TaskCreationOptions.RunContinuationsAsynchronously);
         releaser.OnExecute = (_, _) => gate.Task;
         var releaseTask = vm.ReleaseAsync();
-        await WaitUntil.ForAsync(() => vm.StateMachine.State == AppState.Releasing);
+        await ReleaseStartedAsync(releaser);
 
         vm.PrepareClose(); // 取消语义（关窗路径与取消按钮同源：RequestCancel）
 
@@ -582,10 +595,11 @@ public class ReleaseFlowTests
             new TreePlan(200, [new TreeNode(Proc(200, "b.exe", 1))], [], 1),
             new TreePlan(300, [new TreeNode(Proc(300, "c.exe", 1))], [], 1),
         ];
+        releaser.PlanDelayMs = 100; // #56 假负载：挂起路径下靠屏障铺态
         var gate = new TaskCompletionSource<ReleaseReport>(TaskCreationOptions.RunContinuationsAsynchronously);
         releaser.OnExecute = (_, _) => gate.Task;
         var releaseTask = vm.ReleaseAsync();
-        await WaitUntil.ForAsync(() => vm.StateMachine.State == AppState.Releasing);
+        await ReleaseStartedAsync(releaser);
 
         releaser.RaiseTreeProgress(100, TreeState.Done);
         await vm.ReleaseAsync(); // 第二次调用：状态机拒绝（不执行），亦不得清零在途计数

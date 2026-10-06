@@ -20,6 +20,10 @@ internal sealed class FakeReleaser : IReleaser
     /// <summary>Plan 返回的计划（默认空=无可释放）。</summary>
     public IReadOnlyList<TreePlan> PlanResult { get; set; } = [];
 
+    /// <summary>Plan 入口阻塞毫秒数（#56 假负载：使 ReleaseAsync 首个 await 必然挂起，
+    /// 确定性走通「测试线程跑赢启动链」的负载交错路径；0=不阻塞）。</summary>
+    public int PlanDelayMs { get; set; }
+
     /// <summary>Execute 定制（默认：完成事件后返回空项报告）。</summary>
     public Func<ReleaseRequest, IReadOnlyList<TreePlan>, Task<ReleaseReport>>? OnExecute { get; set; }
 
@@ -32,6 +36,11 @@ internal sealed class FakeReleaser : IReleaser
         ReleaseRequest request, ScanResult scan, WhitelistSnapshot whitelist, RulePack rulePack)
     {
         PlanCalls++;
+        if (PlanDelayMs > 0)
+        {
+            Thread.Sleep(PlanDelayMs);
+        }
+
         if (OnPlanError is not null)
         {
             throw OnPlanError;
