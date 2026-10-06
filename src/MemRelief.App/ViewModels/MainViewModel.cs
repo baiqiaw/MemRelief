@@ -917,7 +917,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     /// <summary>已结束项移除（PRD F3-6）：Released/ForceKilled/Exited 项对应行从列表移除并重建分组
     /// （未结束项——需管理员/被拦截等——保留供提权重启后再处理）；快照本体保留（行详情仍可渲染）；
-    /// 幸存行保留用户勾选/展开态（行实例随重建换新，逐 Pid 迁移旧态，防用户手动取消勾选被重置回默认）。</summary>
+    /// 幸存行保留用户勾选/展开态（行实例随重建换新，逐 Pid 迁移旧态，防用户手动取消勾选被重置回默认）。
+    /// 移除即数据换代：搜索面板一并失效（#60，对齐 <see cref="ApplyResult"/>——无已结束项不动）。</summary>
     private void RemoveFinishedItems(ReleaseReport report)
     {
         if (_snapshot is null)
@@ -942,6 +943,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             .ToDictionary(r => r.Pid, r => (r.IsChecked, r.IsExpanded));
         _classifications = _classifications.Where(c => !finishedPids.Contains(c.Pid)).ToList();
         RebuildGroups(_classifications);
+        SearchResults = [];
+        SearchStatusText = string.Empty; // 空串→XAML DataTrigger 折叠面板（已释放 PID 的旧结论不滞留）
+        _searchSeq++; // 在途查询的响应一并作废
         foreach (var row in Groups.SelectMany(g => g.Rows))
         {
             if (survivorStates.TryGetValue(row.Pid, out var state))

@@ -324,6 +324,89 @@ public class ReleaseFlowTests
         Assert.Contains(remaining, r => r.Pid == 200); // 需管理员未结束：保留供提权重启后再处理
     }
 
+    // —— 已结束项移除即失效搜索面板（#60）——
+
+    [Fact]
+    public async Task 释放完成_确有已结束项_搜索面板清空折叠()
+    {
+        var (vm, releaser, _, _, scanner, rules) = NewVm();
+        scanner.OnTakeSnapshot = () => Task.FromResult(
+            Snapshot(Proc(100, "a.exe", 60_000_000), Proc(200, "b.exe", 30_000_000)));
+        rules.Result = [Classify(100, 60_000_000), Classify(200, 30_000_000, requiresElevation: true)];
+        await ScanAsync(vm);
+        rules.OnQuery = (_, _, _, _) =>
+            [new QueryResult(100, "a.exe", Level.Recommend, [new Basis(1, "孤儿")])];
+        vm.SearchText = "a";
+        await vm.SearchAsync();
+        Assert.Single(vm.SearchResults); // 铺态：面板有行有文案（旧结论指向已释放 PID）
+        Assert.Equal("匹配 1 项", vm.SearchStatusText);
+
+        releaser.PlanResult = [new TreePlan(100, [new TreeNode(Proc(100, "a.exe", 60_000_000))], [], 60_000_000)];
+        releaser.OnExecute = (r, _) => Task.FromResult(ReportOf(r,
+            new ReleaseItemResult(100, "a.exe", null, null, ReleaseItemOutcome.Released),
+            new ReleaseItemResult(200, "b.exe", null, null, ReleaseItemOutcome.NeedsElevation)));
+
+        await vm.ReleaseAsync();
+
+        Assert.Empty(vm.SearchResults); // 已释放 PID 的旧结论不滞留（#60）
+        Assert.Equal(string.Empty, vm.SearchStatusText); // 空串→XAML DataTrigger 折叠面板
+    }
+
+    [Fact]
+    public async Task 全跳过释放_无已结束项_搜索面板保留()
+    {
+        var (vm, releaser, _, _, scanner, rules) = NewVm();
+        scanner.OnTakeSnapshot = () => Task.FromResult(Snapshot(Proc(100, "a.exe", 60_000_000)));
+        rules.Result = [Classify(100, 60_000_000)];
+        await ScanAsync(vm);
+        rules.OnQuery = (_, _, _, _) =>
+            [new QueryResult(100, "a.exe", Level.Recommend, [new Basis(1, "孤儿")])];
+        vm.SearchText = "a";
+        await vm.SearchAsync();
+        releaser.PlanResult = [new TreePlan(100, [new TreeNode(Proc(100, "a.exe", 60_000_000))], [], 60_000_000)];
+        releaser.OnExecute = (r, _) => Task.FromResult(ReportOf(r,
+            new ReleaseItemResult(100, "a.exe", null, null, ReleaseItemOutcome.SkippedProtected, "保护名单命中")));
+
+        await vm.ReleaseAsync();
+
+        // #60 裁决：仅确有已结束项（数据换代）才失效——全跳过时列表未换，旧搜索结论仍如实
+        Assert.Single(vm.SearchResults);
+        Assert.Equal("匹配 1 项", vm.SearchStatusText);
+    }
+
+    [Fact]
+    public async Task 在途查询_释放收口后返回_被作废不回填面板()
+    {
+        var (vm, releaser, _, _, scanner, rules) = NewVm();
+        scanner.OnTakeSnapshot = () => Task.FromResult(Snapshot(Proc(100, "a.exe", 60_000_000)));
+        rules.Result = [Classify(100, 60_000_000)];
+        await ScanAsync(vm);
+        var queryEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queryGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rules.OnQuery = (_, _, _, _) =>
+        {
+            queryEntered.SetResult();
+            queryGate.Task.Wait(); // 查询挂起：跨过释放收口才返回（真实在途窗口）
+            return [new QueryResult(100, "a.exe", Level.Recommend, [new Basis(1, "孤儿")])];
+        };
+        vm.SearchText = "a";
+        var searchTask = vm.SearchAsync();
+        await queryEntered.Task; // 查询已进入、尚未返回
+
+        releaser.PlanResult = [new TreePlan(100, [new TreeNode(Proc(100, "a.exe", 60_000_000))], [], 60_000_000)];
+        releaser.OnExecute = (r, _) => Task.FromResult(ReportOf(r,
+            new ReleaseItemResult(100, "a.exe", null, null, ReleaseItemOutcome.Released)));
+
+        await vm.ReleaseAsync(); // 收口：清面板并作废在途响应
+        Assert.Empty(vm.SearchResults);
+
+        queryGate.SetResult(); // 在途查询此刻才返回
+        await searchTask;
+
+        Assert.Empty(vm.SearchResults); // 过期响应被序号守卫丢弃，不回填已释放 PID 的旧结论
+        Assert.Equal(string.Empty, vm.SearchStatusText);
+    }
+
     [Fact]
     public async Task 结果展示态_状态文本提示可重新扫描()
     {
