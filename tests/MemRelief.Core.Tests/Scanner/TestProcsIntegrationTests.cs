@@ -173,6 +173,68 @@ public class TestProcsIntegrationTests
         Assert.Equal(1, parent.ExitCode);
     }
 
+    // 回归（issue #55）：带值参数提供但缺值（位于末尾）或空串 = 参数错误退出码 1，不与「未提供」混同。
+    // 原症状：--out-pid 缺值被按未提供处理 → parent 码 0 正常退出，错误配置被掩盖；
+    // 空串 → WriteAllLines("") 异常崩溃。校验前置于 child 启动（同 #44 口径），参数错误不产生 child。
+    // 兜底口径：守卫若被回归删除，缺值形态 parent 码 0 正常退出且 child 成无 pid 孤儿（无 pid 文件正是被测缺陷，
+    // 无法自动回收）——由首测同目录存活断言连锁暴露，手工按映像名回收（README「停止」段）
+    [Theory]
+    [InlineData(null)]   // 缺值：--out-pid 位于参数末尾
+    [InlineData("")]     // 空串：--out-pid ""
+    public void 孤儿构造器_真机_parent_out_pid缺值或空串按参数错误退出(string? value)
+    {
+        var exe = ExePath();
+        Assert.True(File.Exists(exe), $"构造器未构建：{exe}（gate.ps1 全 sln 构建后应存在）");
+
+        var psi = new ProcessStartInfo(exe) { CreateNoWindow = true, UseShellExecute = false };
+        psi.ArgumentList.Add("parent");
+        psi.ArgumentList.Add("--mem-mb");
+        psi.ArgumentList.Add("0");
+        psi.ArgumentList.Add("--out-pid");
+        if (value is not null)
+        {
+            psi.ArgumentList.Add(value);
+        }
+        using var parent = Process.Start(psi);
+        Assert.True(parent!.WaitForExit(15_000), "parent 15s 内未退出（--out-pid 缺值/空串应按参数错误立即退出）");
+        Assert.Equal(1, parent.ExitCode);
+    }
+
+    // child 侧同口径（--ready-event 缺值原被按未提供处理 → child 挂起不退出，错误配置同样被掩盖）
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void 孤儿构造器_真机_child_ready_event缺值或空串按参数错误退出(string? value)
+    {
+        var exe = ExePath();
+        Assert.True(File.Exists(exe), $"构造器未构建：{exe}（gate.ps1 全 sln 构建后应存在）");
+
+        var psi = new ProcessStartInfo(exe) { CreateNoWindow = true, UseShellExecute = false };
+        psi.ArgumentList.Add("child");
+        psi.ArgumentList.Add("--mem-mb");
+        psi.ArgumentList.Add("0");
+        psi.ArgumentList.Add("--ready-event");
+        if (value is not null)
+        {
+            psi.ArgumentList.Add(value);
+        }
+        Process? child = null;
+        try
+        {
+            child = Process.Start(psi);
+            Assert.True(child!.WaitForExit(10_000), "child 10s 内未退出（--ready-event 缺值/空串应按参数错误立即退出）");
+            Assert.Equal(1, child.ExitCode);
+        }
+        finally
+        {
+            // 兜底（同 #44 负例）：守卫若被回归删除，缺值形态落 Sleep(Infinite) 挂起，须杀掉防残留击穿同目录断言
+            if (child is not null)
+            {
+                TryKillById(child.Id);
+            }
+        }
+    }
+
     private static void TryKillById(int pid)
     {
         try

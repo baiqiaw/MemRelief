@@ -47,6 +47,12 @@ static int RunChild(string[] args)
         return 1;   // 参数越界或缺值/非数值（WinExe 无控制台，退出码 1=参数错误；用法见 README）
     }
 
+    // 提供但缺值/空串（如位于参数末尾）≠ 未提供：按参数错误退出（issue #55，与 --mem-mb 同口径）
+    if (Has(args, "--ready-event") && GetStr(args, "--ready-event") is not { Length: > 0 })
+    {
+        return 1;
+    }
+
     if (memMb.Value > 0)
     {
         Hold.Memory = new byte[memMb.Value * 1024L * 1024L];
@@ -106,6 +112,12 @@ static int RunParent(string[] args)
 
     // 越界或缺值/非数值：参数错误直接退出，不启动 child（与 child 侧校验同口径；此前经 child 拒绝落 2，issue #44）
     if (IsMemMbInvalid(memMb))
+    {
+        return 1;
+    }
+
+    // 同口径（issue #55）：--out-pid 提供但缺值/空串按参数错误退出，前置于 child 启动
+    if (Has(args, "--out-pid") && GetStr(args, "--out-pid") is not { Length: > 0 })
     {
         return 1;
     }
@@ -198,6 +210,7 @@ static int? GetInt(string[] args, string name, int fallback)
         : null;             // 提供了但缺值/非数值/溢出 → null（调用方按参数错误退出，issue #44）
 }
 
+/// <summary>取带值参数值；null = 未提供或提供但缺值，空串原样返回——调用方守卫按 is not { Length: > 0 } 同拦缺值/空串（issue #55）。</summary>
 static string? GetStr(string[] args, string name)
 {
     var index = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase));
